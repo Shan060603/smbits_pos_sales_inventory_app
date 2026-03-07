@@ -124,7 +124,7 @@ class SMBITSInventoryBridge:
         formatted = []
         for row in rows:
             item_code = self._first_value(row, ["item_code", "item"])
-            item_name = self._first_value(row, ["item_name", "item_code", "item"], item_code)
+            item_name = self._first_value(row, ["item_name", "item_name_en", "item_name_local"], "")
             warehouse = self._first_value(row, ["warehouse"])
             qty = self._first_value(row, ["bal_qty", "actual_qty", "qty"], 0)
             valuation_rate = self._first_value(row, ["valuation_rate", "incoming_rate", "basic_rate"], 0)
@@ -170,7 +170,7 @@ class SMBITSInventoryBridge:
                 row["selling_price"] = selling_map[code]
         return rows
 
-    def _get_stock_from_bin(self, company=None, warehouse=None, start=0, page_length=200):
+    def _get_stock_from_bin(self, company=None, warehouse=None, start=0, page_length=200, include_zero_stock=False):
         """
         Fallback path when Stock Balance report returns no rows.
         Uses Bin records and company-scoped warehouses.
@@ -198,22 +198,47 @@ class SMBITSInventoryBridge:
             page_length=2000
         )
 
-        # Remove pure-zero rows so UI isn't filled with noise.
-        bins = [b for b in bins if (b.get("actual_qty") or 0) != 0]
+        if not include_zero_stock:
+            bins = [b for b in bins if (b.get("actual_qty") or 0) != 0]
+
+        # Enrich with item_name so UI can display ID + Name clearly.
+        item_codes = sorted({b.get("item_code") for b in bins if b.get("item_code")})
+        item_map = {}
+        if item_codes:
+            items = self.get_resource_list(
+                "Item",
+                filters=[["name", "in", item_codes]],
+                fields=["name", "item_name"],
+                start=0,
+                page_length=2000
+            )
+            item_map = {it.get("name"): (it.get("item_name") or "") for it in items}
+            for row in bins:
+                row["item_name"] = item_map.get(row.get("item_code"), "")
+
         paged = bins[start:start + page_length]
         return self._format_rows_for_ui(paged)
 
-    def get_full_stock_report(self, company=None, warehouse=None, start=0, page_length=200):
+    def get_full_stock_report(self, company=None, warehouse=None, start=0, page_length=200, include_zero_stock=False):
         """
         Fetch all Stock Balance data safely with pagination, avoids 417.
         """
         try:
-            filters = {"company": company or ""}
+            filters = {}
+            if company:
+                filters["company"] = company
             if warehouse:
                 filters["warehouse"] = warehouse
 
             report_endpoint = f"{self.url}/api/method/frappe.desk.query_report.run"
-            payload = {"report_name": "Stock Balance", "filters": filters}
+            payload = {
+                "report_name": "Stock Balance",
+                "filters": filters
+            }
+            # Handle ERPNext variants for including zero-stock rows.
+            if include_zero_stock:
+                payload["filters"]["include_zero_stock"] = 1
+                payload["filters"]["show_zero_stock_items"] = 1
 
             res = self.session.post(report_endpoint, json=payload, timeout=30)
             res.raise_for_status()
@@ -228,7 +253,8 @@ class SMBITSInventoryBridge:
                     company=company,
                     warehouse=warehouse,
                     start=start,
-                    page_length=page_length
+                    page_length=page_length,
+                    include_zero_stock=include_zero_stock
                 )
                 print(f"ℹ️ SMBITS Stock Balance rows=0, Bin fallback rows={len(fallback_data)}")
                 return self._apply_item_prices(fallback_data)
@@ -296,6 +322,117 @@ class SMBITSInventoryBridge:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    def create_item(self, item_code, item_name, stock_uom, item_group=None, is_stock_item=True, sales_price=0, purchase_price=0):
+        """Create Item and optionally seed Standard Buying/Selling prices."""
+        item_code = (item_code or "").strip()
+        item_name = (item_name or item_code).strip()
+        stock_uom = (stock_uom or "").strip()
+        item_group = (item_group or "").strip()
+        if not item_code or not stock_uom:
+            return {"ok": False, "error": "Item code and UOM are required."}
+
+        if not item_group:
+            groups = self.get_resource_list("Item Group", fields=["name"], start=0, page_length=1)
+            item_group = groups[0]["name"] if groups else "All Item Groups"
+
+        payload = {
+            "item_code": item_code,
+            "item_name": item_name,
+            "item_group": item_group,
+            "stock_uom": stock_uom,
+            "is_stock_item": 1 if is_stock_item else 0
+        }
+        endpoint = f"{self.url}/api/resource/Item"
+
+        try:
+            res = self.session.post(endpoint, json=payload, timeout=25)
+            body = res.json() if res.text else {}
+            created = body.get("data")
+            if not res.ok or not isinstance(created, dict):
+                msg = body.get("message") if isinstance(body, dict) else None
+                if isinstance(msg, dict):
+                    msg = msg.get("message")
+                return {"ok": False, "error": msg or body.get("error") or f"Failed to create item ({res.status_code})."}
+
+            if float(sales_price or 0) > 0:
+                self.upsert_item_price(created.get("name"), "Standard Selling", float(sales_price))
+            if float(purchase_price or 0) > 0:
+                self.upsert_item_price(created.get("name"), "Standard Buying", float(purchase_price))
+            return {"ok": True, "data": created}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def get_item_list(self):
+        """Return item master list with buying/selling rates."""
+        items = self.get_resource_list(
+            "Item",
+            fields=["name", "item_name", "stock_uom", "item_group", "disabled"],
+            start=0,
+            page_length=4000
+        )
+
+        rows = []
+        for it in items:
+            rows.append({
+                "item_code": it.get("name"),
+                "item_name": it.get("item_name") or "",
+                "stock_uom": it.get("stock_uom") or "",
+                "item_group": it.get("item_group") or "",
+                "disabled": int(it.get("disabled") or 0),
+                "valuation_rate": 0,
+                "selling_price": 0
+            })
+
+        rows = self._apply_item_prices(rows)
+        rows.sort(key=lambda r: ((r.get("item_name") or "").lower(), (r.get("item_code") or "").lower()))
+        return rows
+
+    @staticmethod
+    def _extract_error(payload):
+        if not isinstance(payload, dict):
+            return str(payload)
+        msg = payload.get("message")
+        if isinstance(msg, dict):
+            return msg.get("message") or str(msg)
+        if isinstance(msg, str):
+            return msg
+        return payload.get("error") or payload.get("exc") or "Request failed."
+
+    def create_uom(self, uom_name):
+        uom_name = (uom_name or "").strip()
+        if not uom_name:
+            return {"ok": False, "error": "UOM name is required."}
+        try:
+            endpoint = f"{self.url}/api/resource/UOM"
+            payload = {"uom_name": uom_name}
+            res = self.session.post(endpoint, json=payload, timeout=25)
+            body = res.json() if res.text else {}
+            if res.ok and isinstance(body.get("data"), dict):
+                return {"ok": True, "data": body["data"]}
+            return {"ok": False, "error": self._extract_error(body)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def create_item_group(self, item_group_name, parent_item_group="All Item Groups"):
+        item_group_name = (item_group_name or "").strip()
+        parent_item_group = (parent_item_group or "All Item Groups").strip()
+        if not item_group_name:
+            return {"ok": False, "error": "Item Group name is required."}
+        try:
+            endpoint = f"{self.url}/api/resource/Item Group"
+            payload = {
+                "item_group_name": item_group_name,
+                "parent_item_group": parent_item_group,
+                "is_group": 0
+            }
+            res = self.session.post(endpoint, json=payload, timeout=25)
+            body = res.json() if res.text else {}
+            if res.ok and isinstance(body.get("data"), dict):
+                return {"ok": True, "data": body["data"]}
+            return {"ok": False, "error": self._extract_error(body)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
 
 def get_inventory_engine():
     return SMBITSInventoryBridge(
@@ -311,6 +448,11 @@ def get_inventory_engine():
 @inventory_bp.route("/")
 def inventory_home():
     return render_template("inventory_index.html")
+
+
+@inventory_bp.route("/items")
+def inventory_items_page():
+    return render_template("inventory_items.html")
 
 
 @inventory_bp.route("/api/metadata", methods=["GET"])
@@ -341,16 +483,86 @@ def stock_report():
     inventory_engine = get_inventory_engine()
     company = request.args.get("company")
     warehouse = request.args.get("warehouse")
+    include_zero_stock = str(request.args.get("include_zero_stock", "")).lower() in ("1", "true", "yes", "on")
     start = request.args.get("start", 0, type=int)
 
     data = inventory_engine.get_full_stock_report(
         company=company,
         warehouse=warehouse,
+        include_zero_stock=include_zero_stock,
         start=start,
         page_length=20
     )
 
     return jsonify(data)
+
+
+@inventory_bp.route("/api/item_list", methods=["GET"])
+def item_list():
+    inventory_engine = get_inventory_engine()
+    return jsonify(inventory_engine.get_item_list())
+
+
+@inventory_bp.route("/api/item_list_filters", methods=["GET"])
+def item_list_filters():
+    inventory_engine = get_inventory_engine()
+    uoms = inventory_engine.get_resource_list(
+        "UOM",
+        fields=["name"],
+        start=0,
+        page_length=2000
+    )
+    item_groups = inventory_engine.get_resource_list(
+        "Item Group",
+        fields=["name"],
+        start=0,
+        page_length=2000
+    )
+    return jsonify({
+        "uoms": [u.get("name") for u in uoms if u.get("name")],
+        "item_groups": [g.get("name") for g in item_groups if g.get("name")]
+    })
+
+
+@inventory_bp.route("/api/items", methods=["POST"])
+def create_item():
+    inventory_engine = get_inventory_engine()
+    data = request.json or {}
+    result = inventory_engine.create_item(
+        item_code=data.get("item_code"),
+        item_name=data.get("item_name"),
+        stock_uom=data.get("stock_uom"),
+        item_group=data.get("item_group"),
+        is_stock_item=bool(data.get("is_stock_item", True)),
+        sales_price=float(data.get("sales_price") or 0),
+        purchase_price=float(data.get("purchase_price") or 0)
+    )
+    if result.get("ok"):
+        return jsonify({"status": "success", "item": result.get("data")})
+    return jsonify({"status": "error", "message": result.get("error") or "Failed to create item."}), 400
+
+
+@inventory_bp.route("/api/uoms", methods=["POST"])
+def create_uom():
+    inventory_engine = get_inventory_engine()
+    data = request.json or {}
+    result = inventory_engine.create_uom(data.get("uom_name"))
+    if result.get("ok"):
+        return jsonify({"status": "success", "uom": result.get("data")})
+    return jsonify({"status": "error", "message": result.get("error") or "Failed to create UOM."}), 400
+
+
+@inventory_bp.route("/api/item_groups", methods=["POST"])
+def create_item_group():
+    inventory_engine = get_inventory_engine()
+    data = request.json or {}
+    result = inventory_engine.create_item_group(
+        item_group_name=data.get("item_group_name"),
+        parent_item_group=data.get("parent_item_group") or "All Item Groups"
+    )
+    if result.get("ok"):
+        return jsonify({"status": "success", "item_group": result.get("data")})
+    return jsonify({"status": "error", "message": result.get("error") or "Failed to create Item Group."}), 400
 
 
 @inventory_bp.route("/api/stock_entry", methods=["POST"])

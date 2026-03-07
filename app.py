@@ -24,7 +24,7 @@ app.register_blueprint(purchase_bp, url_prefix='/purchases')
 ERPNEXT_URL = (os.getenv("ERPNEXT_URL") or "").rstrip("/")
 DEFAULT_API_KEY = os.getenv("API_KEY") or os.getenv("ERP_API_KEY") or ""
 DEFAULT_API_SECRET = os.getenv("API_SECRET") or os.getenv("ERP_API_SECRET") or ""
-IDLE_TIMEOUT_SECONDS = int(os.getenv("IDLE_TIMEOUT_SECONDS", "30"))
+IDLE_TIMEOUT_SECONDS = int(os.getenv("IDLE_TIMEOUT_SECONDS", "300"))
 
 
 def _is_public_path(path):
@@ -41,8 +41,8 @@ def _is_public_path(path):
     return False
 
 
-def _authenticate_erpnext_user(username, password):
-    base_url = (session.get("erp_url") or ERPNEXT_URL or "").rstrip("/")
+def _authenticate_erpnext_user(username, password, base_url=None):
+    base_url = (base_url or ERPNEXT_URL or "").rstrip("/")
     if not base_url:
         return {"ok": False, "message": "ERPNEXT_URL is not configured on server."}
     try:
@@ -125,6 +125,11 @@ def get_local_ip():
     return ip
 
 
+@app.context_processor
+def inject_idle_timeout():
+    return {"idle_timeout_seconds": IDLE_TIMEOUT_SECONDS}
+
+
 @app.route("/")
 def dashboard():
     """Main dashboard UI."""
@@ -142,7 +147,7 @@ def login():
         return render_template(
             "login.html",
             next_url=next_url,
-            erp_url=session.get("erp_url") or ERPNEXT_URL
+            erp_url=""
         )
 
     username = (request.form.get("username") or "").strip()
@@ -166,15 +171,14 @@ def login():
         flash(token_check.get("message") or "Invalid API token credentials.", "error")
         return render_template("login.html", next_url=next_url, erp_url=erp_url), 401
 
-    session["erp_url"] = erp_url
-    session["erp_api_key"] = api_key
-    session["erp_api_secret"] = api_secret
-
-    auth = _authenticate_erpnext_user(username, password)
+    auth = _authenticate_erpnext_user(username, password, base_url=erp_url)
     if not auth.get("ok"):
         flash(auth.get("message") or "Login failed.", "error")
         return render_template("login.html", next_url=next_url, erp_url=erp_url), 401
 
+    session["erp_url"] = erp_url
+    session["erp_api_key"] = api_key
+    session["erp_api_secret"] = api_secret
     session["erp_user"] = auth.get("user")
     session["last_activity_ts"] = int(time.time())
     return redirect(next_url)

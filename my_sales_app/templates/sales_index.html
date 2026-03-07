@@ -21,6 +21,9 @@
             </div>
             <div class="flex items-center gap-3">
                 <a href="/" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Home</a>
+                <button type="button" onclick="window.location.reload()" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
+                    <i class="fa-solid fa-sync mr-1"></i>Refresh
+                </button>
                 <a href="/sales/report" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Invoice Report</a>
                 <form method="POST" action="/logout">
                     <button type="submit" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Logout</button>
@@ -454,7 +457,7 @@
     </script>
     <script src="/static/idle-timeout.js"></script>
     <script>
-        initInactivityLogout(30);
+        initInactivityLogout(Number('{{ idle_timeout_seconds|int }}'));
     </script>
 </body>
 </html>

@@ -10,29 +10,43 @@
 <body class="bg-slate-100 min-h-screen p-4 sm:p-8" onload="initReport()">
     <div class="max-w-7xl mx-auto space-y-6">
         <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex justify-between items-center border-b-4 border-indigo-500">
-            <div class="flex items-center gap-4">
-                <a href="/" class="bg-white/10 hover:bg-white/20 w-10 h-10 flex items-center justify-center rounded-xl transition-all">
-                    <i class="fa-solid fa-house text-white"></i>
-                </a>
-                <div>
-                    <h1 class="text-xl font-black uppercase tracking-tight">Purchase Reports</h1>
-                    <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest">PO / PI / PR Monitoring</p>
-                </div>
+            <div>
+                <h1 class="text-xl font-black uppercase tracking-tight">Purchase Reports</h1>
+                <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest">PO / PI / PR Monitoring</p>
             </div>
-            <a href="/purchases" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-lg text-xs font-bold transition-all">
-                Back To Purchasing
-            </a>
+            <div class="flex items-center gap-2">
+                <a href="/" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
+                    Home
+                </a>
+                <button type="button" id="tab-purchase_order" onclick="setReportType('purchase_order')" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-2 rounded-lg text-xs font-bold transition-all">
+                    PO
+                </button>
+                <button type="button" id="tab-purchase_invoice" onclick="setReportType('purchase_invoice')" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-xs font-bold transition-all">
+                    PI
+                </button>
+                <button type="button" id="tab-purchase_receipt" onclick="setReportType('purchase_receipt')" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-xs font-bold transition-all">
+                    PR
+                </button>
+                <button onclick="loadReport()" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
+                    <i class="fa-solid fa-sync mr-1"></i> Refresh
+                </button>
+                <a href="/purchases" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
+                    Back To Purchasing
+                </a>
+                <form method="POST" action="/logout">
+                    <button type="submit" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
+                        Logout
+                    </button>
+                </form>
+            </div>
         </div>
 
-        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-3">
-            <div>
-                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Report Type</label>
-                <select id="report_type" class="w-full border border-slate-200 rounded-lg p-2 text-sm" onchange="onReportTypeChange()">
-                    <option value="purchase_order">Purchase Order</option>
-                    <option value="purchase_invoice">Purchase Invoice</option>
-                    <option value="purchase_receipt">Purchase Receipt</option>
-                </select>
-            </div>
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
+            <select id="report_type" class="hidden" onchange="onReportTypeChange()">
+                <option value="purchase_order">Purchase Order</option>
+                <option value="purchase_invoice">Purchase Invoice</option>
+                <option value="purchase_receipt">Purchase Receipt</option>
+            </select>
             <div>
                 <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">From Date</label>
                 <input type="date" id="from_date" class="w-full border border-slate-200 rounded-lg p-2 text-sm">
@@ -142,8 +156,27 @@
 
         function onReportTypeChange() {
             const type = document.getElementById('report_type').value;
+            updateReportTypeTabs(type);
             renderStatusOptions(type, 'all');
             loadReport();
+        }
+
+        function setReportType(type) {
+            document.getElementById('report_type').value = type;
+            onReportTypeChange();
+        }
+
+        function updateReportTypeTabs(activeType) {
+            const types = ['purchase_order', 'purchase_invoice', 'purchase_receipt'];
+            types.forEach(type => {
+                const el = document.getElementById(`tab-${type}`);
+                if (!el) return;
+                if (type === activeType) {
+                    el.className = 'bg-indigo-600 hover:bg-indigo-500 px-3 py-2 rounded-lg text-xs font-bold transition-all';
+                } else {
+                    el.className = 'bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-xs font-bold transition-all';
+                }
+            });
         }
 
         async function initReport() {
@@ -155,6 +188,7 @@
             if (typeFromQuery && ['purchase_order', 'purchase_invoice', 'purchase_receipt'].includes(typeFromQuery)) {
                 document.getElementById('report_type').value = typeFromQuery;
             }
+            updateReportTypeTabs(document.getElementById('report_type').value);
             renderStatusOptions(document.getElementById('report_type').value, 'all');
 
             try {
@@ -285,7 +319,7 @@
     </script>
     <script src="/static/idle-timeout.js"></script>
     <script>
-        initInactivityLogout(30);
+        initInactivityLogout(Number('{{ idle_timeout_seconds|int }}'));
     </script>
 </body>
 </html>

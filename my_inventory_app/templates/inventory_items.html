@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SMBITS - Item List</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-slate-100 min-h-screen p-4 sm:p-8" onload="initPage()">
+
+<div class="max-w-7xl mx-auto space-y-6">
+  <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex justify-between items-center border-b-4 border-emerald-500">
+    <div>
+      <h1 class="text-xl font-black uppercase tracking-tight">
+        <span class="text-emerald-500">SMBITS</span> Item List
+      </h1>
+      <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest">
+        Inventory Item Master
+      </p>
+    </div>
+    <div class="flex items-center gap-2">
+      <a href="/" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Home</a>
+      <a href="/inventory" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Stock Report</a>
+      <button onclick="loadItems()" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
+        <i class="fa-solid fa-sync mr-1"></i>Refresh
+      </button>
+      <form method="POST" action="/logout">
+        <button type="submit" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Logout</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+      <button onclick="openItemModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
+        <i class="fa-solid fa-plus mr-1"></i>Add Item
+      </button>
+      <input id="search" oninput="resetPageAndRender()" type="text" placeholder="Search item name..."
+        class="w-full border border-slate-200 rounded-lg p-2 text-sm bg-slate-50 focus:border-emerald-500 outline-none">
+      <select id="filter-uom" onchange="resetPageAndRender()" class="w-full border border-slate-200 rounded-lg p-2 text-sm bg-slate-50 text-slate-700">
+        <option value="">All UOM</option>
+      </select>
+      <select id="filter-group" onchange="resetPageAndRender()" class="w-full border border-slate-200 rounded-lg p-2 text-sm bg-slate-50 text-slate-700">
+        <option value="">All Item Groups</option>
+      </select>
+      <div class="text-right text-xs font-bold text-slate-500 uppercase tracking-widest pt-2 md:text-left">
+        Total Items: <span id="count">0</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left">
+        <thead class="bg-slate-50 border-b border-slate-100">
+          <tr class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+            <th class="px-5 py-4">Item Details</th>
+            <th class="px-5 py-4">UOM</th>
+            <th class="px-5 py-4">Item Group</th>
+            <th class="px-5 py-4 text-right">Buying Rate</th>
+            <th class="px-5 py-4 text-right">Selling Rate</th>
+            <th class="px-5 py-4 text-center">Status</th>
+          </tr>
+        </thead>
+        <tbody id="body" class="divide-y divide-slate-50"></tbody>
+      </table>
+    </div>
+    <div class="p-4 bg-slate-50 border-t flex justify-between items-center">
+      <button id="prev-btn" onclick="changePage(-1)"
+        class="px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold shadow-sm hover:bg-slate-100 text-slate-600">
+        <i class="fa-solid fa-chevron-left mr-2"></i> Previous
+      </button>
+      <div id="page-display" class="text-[10px] text-slate-400 font-black uppercase tracking-widest">
+        Showing Items <span id="range-start">0</span> - <span id="range-end">0</span>
+      </div>
+      <button id="next-btn" onclick="changePage(1)"
+        class="px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold shadow-sm hover:bg-slate-100 text-slate-600">
+        Next <i class="fa-solid fa-chevron-right ml-2"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="item-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-6 border border-slate-200">
+    <div class="flex justify-between items-center mb-4">
+      <div>
+        <h3 class="text-lg font-black text-slate-800">New Item</h3>
+        <p class="text-[11px] text-slate-500">Create item similar to ERPNext item setup.</p>
+      </div>
+      <button type="button" onclick="closeItemModal()" class="text-slate-500 hover:text-slate-700 text-xl">×</button>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div>
+        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Item Code *</label>
+        <input type="text" id="new_item_code" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="e.g. ITEM-001">
+      </div>
+      <div>
+        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Item Name</label>
+        <input type="text" id="new_item_name" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="e.g. Product Name">
+      </div>
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <label class="block text-[10px] font-bold text-slate-400 uppercase">Item Group *</label>
+          <button type="button" onclick="addItemGroup()" class="text-[10px] font-bold uppercase text-emerald-600 hover:text-emerald-700">+ Add</button>
+        </div>
+        <select id="new_item_group" class="w-full border border-slate-200 rounded-lg p-2 text-sm bg-white">
+          <option value="">Select Item Group...</option>
+        </select>
+      </div>
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <label class="block text-[10px] font-bold text-slate-400 uppercase">Stock UOM *</label>
+          <button type="button" onclick="addUom()" class="text-[10px] font-bold uppercase text-emerald-600 hover:text-emerald-700">+ Add</button>
+        </div>
+        <select id="new_item_uom" class="w-full border border-slate-200 rounded-lg p-2 text-sm bg-white">
+          <option value="">Select UOM...</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Sales Price</label>
+        <input type="number" id="new_item_sales_price" min="0" step="0.01" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="0.00">
+      </div>
+      <div>
+        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Purchase Price</label>
+        <input type="number" id="new_item_purchase_price" min="0" step="0.01" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="0.00">
+      </div>
+    </div>
+
+    <label class="mt-4 inline-flex items-center gap-2 text-sm text-slate-700">
+      <input id="new_item_is_stock" type="checkbox" checked class="w-4 h-4 accent-emerald-600">
+      Is Stock Item
+    </label>
+
+    <div class="mt-5 flex gap-3 justify-end">
+      <button type="button" onclick="closeItemModal()" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-600 text-sm font-bold">Cancel</button>
+      <button type="button" onclick="submitItem()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold">Create Item</button>
+    </div>
+  </div>
+</div>
+
+<div id="quick-create-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm hidden items-center justify-center p-4 z-[60]">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 border border-slate-200">
+    <div class="flex justify-between items-center mb-3">
+      <h4 id="quick-create-title" class="text-base font-black text-slate-800">Add</h4>
+      <button type="button" onclick="closeQuickCreateModal()" class="text-slate-500 hover:text-slate-700 text-xl">×</button>
+    </div>
+    <p id="quick-create-subtitle" class="text-[11px] text-slate-500 mb-3">Create new value.</p>
+    <input id="quick-create-input" type="text" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="Enter name">
+    <div class="mt-4 flex gap-2 justify-end">
+      <button type="button" onclick="closeQuickCreateModal()" class="px-3 py-2 rounded-lg border border-slate-300 text-slate-600 text-sm font-bold">Cancel</button>
+      <button type="button" onclick="submitQuickCreate()" class="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let rows = []
+let allUoms = []
+let allItemGroups = []
+let currentPage = 0
+const pageSize = 20
+let quickCreateType = ''
+
+async function initPage() {
+  await loadItems()
+}
+
+async function loadItems() {
+  const [itemsRes, filtersRes] = await Promise.all([
+    fetch('/inventory/api/item_list'),
+    fetch('/inventory/api/item_list_filters')
+  ])
+  rows = await itemsRes.json()
+  const filterData = await filtersRes.json()
+  allUoms = Array.isArray(filterData.uoms) ? filterData.uoms : []
+  allItemGroups = Array.isArray(filterData.item_groups) ? filterData.item_groups : []
+  populateFilters()
+  renderTable()
+}
+
+function resetPageAndRender() {
+  currentPage = 0
+  renderTable()
+}
+
+function changePage(direction) {
+  const q = (document.getElementById('search').value || '').toLowerCase()
+  const selectedUom = (document.getElementById('filter-uom').value || '').trim()
+  const selectedGroup = (document.getElementById('filter-group').value || '').trim()
+  const totalFiltered = rows.filter(r => {
+    const name = (r.item_name || '').toLowerCase()
+    const uom = (r.stock_uom || '').trim()
+    const group = (r.item_group || '').trim()
+    const matchesName = name.includes(q)
+    const matchesUom = !selectedUom || uom === selectedUom
+    const matchesGroup = !selectedGroup || group === selectedGroup
+    return matchesName && matchesUom && matchesGroup
+  }).length
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize))
+  currentPage = Math.min(Math.max(currentPage + direction, 0), totalPages - 1)
+  renderTable()
+}
+
+function populateFilters() {
+  const uomSelect = document.getElementById('filter-uom')
+  const groupSelect = document.getElementById('filter-group')
+
+  const rowUoms = [...new Set(rows.map(r => (r.stock_uom || '').trim()).filter(Boolean))]
+  const rowGroups = [...new Set(rows.map(r => (r.item_group || '').trim()).filter(Boolean))]
+  const uoms = [...new Set([...allUoms, ...rowUoms])].sort((a, b) => a.localeCompare(b))
+  const groups = [...new Set([...allItemGroups, ...rowGroups])].sort((a, b) => a.localeCompare(b))
+
+  uomSelect.innerHTML = '<option value="">All UOM</option>' + uoms.map(v => `<option value="${v}">${v}</option>`).join('')
+  groupSelect.innerHTML = '<option value="">All Item Groups</option>' + groups.map(v => `<option value="${v}">${v}</option>`).join('')
+  document.getElementById('new_item_uom').innerHTML = '<option value="">Select UOM...</option>' + uoms.map(v => `<option value="${v}">${v}</option>`).join('')
+  document.getElementById('new_item_group').innerHTML = '<option value="">Select Item Group...</option>' + groups.map(v => `<option value="${v}">${v}</option>`).join('')
+  document.getElementById('search').oninput = resetPageAndRender
+  uomSelect.onchange = resetPageAndRender
+  groupSelect.onchange = resetPageAndRender
+}
+
+function openItemModal() {
+  document.getElementById('item-modal').classList.remove('hidden')
+  document.getElementById('item-modal').classList.add('flex')
+}
+
+function closeItemModal() {
+  document.getElementById('item-modal').classList.remove('flex')
+  document.getElementById('item-modal').classList.add('hidden')
+}
+
+function openQuickCreateModal(type) {
+  quickCreateType = type
+  const title = document.getElementById('quick-create-title')
+  const subtitle = document.getElementById('quick-create-subtitle')
+  const input = document.getElementById('quick-create-input')
+  if (type === 'uom') {
+    title.innerText = 'Add UOM'
+    subtitle.innerText = 'Create a new Unit of Measure.'
+    input.placeholder = 'e.g. Box'
+  } else {
+    title.innerText = 'Add Item Group'
+    subtitle.innerText = 'Create a new Item Group.'
+    input.placeholder = 'e.g. Beverages'
+  }
+  input.value = ''
+  document.getElementById('quick-create-modal').classList.remove('hidden')
+  document.getElementById('quick-create-modal').classList.add('flex')
+  input.focus()
+}
+
+function closeQuickCreateModal() {
+  document.getElementById('quick-create-modal').classList.remove('flex')
+  document.getElementById('quick-create-modal').classList.add('hidden')
+}
+
+async function submitItem() {
+  const payload = {
+    item_code: (document.getElementById('new_item_code').value || '').trim(),
+    item_name: (document.getElementById('new_item_name').value || '').trim(),
+    item_group: document.getElementById('new_item_group').value || '',
+    stock_uom: document.getElementById('new_item_uom').value || '',
+    is_stock_item: document.getElementById('new_item_is_stock').checked,
+    sales_price: Number(document.getElementById('new_item_sales_price').value || 0),
+    purchase_price: Number(document.getElementById('new_item_purchase_price').value || 0)
+  }
+
+  if (!payload.item_code || !payload.stock_uom || !payload.item_group) {
+    alert('Item Code, Item Group, and Stock UOM are required.')
+    return
+  }
+
+  const res = await fetch('/inventory/api/items', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  })
+  const result = await res.json()
+  if (!res.ok) {
+    alert(result.message || 'Failed to create item.')
+    return
+  }
+
+  closeItemModal()
+  document.getElementById('new_item_code').value = ''
+  document.getElementById('new_item_name').value = ''
+  document.getElementById('new_item_sales_price').value = ''
+  document.getElementById('new_item_purchase_price').value = ''
+  document.getElementById('new_item_is_stock').checked = true
+  await loadItems()
+}
+
+function addUom() {
+  openQuickCreateModal('uom')
+}
+
+function addItemGroup() {
+  openQuickCreateModal('item_group')
+}
+
+async function submitQuickCreate() {
+  const input = document.getElementById('quick-create-input')
+  const name = (input.value || '').trim()
+  if (!name) return
+
+  if (quickCreateType === 'uom') {
+    const res = await fetch('/inventory/api/uoms', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({uom_name: name})
+    })
+    const result = await res.json()
+    if (!res.ok) {
+      alert(result.message || 'Failed to create UOM.')
+      return
+    }
+    closeQuickCreateModal()
+    await loadItems()
+    document.getElementById('new_item_uom').value = (result.uom && result.uom.name) || name
+    return
+  }
+
+  const res = await fetch('/inventory/api/item_groups', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({item_group_name: name})
+  })
+  const result = await res.json()
+  if (!res.ok) {
+    alert(result.message || 'Failed to create Item Group.')
+    return
+  }
+  closeQuickCreateModal()
+  await loadItems()
+  document.getElementById('new_item_group').value = (result.item_group && result.item_group.name) || name
+}
+
+function renderTable() {
+  const q = (document.getElementById('search').value || '').toLowerCase()
+  const selectedUom = (document.getElementById('filter-uom').value || '').trim()
+  const selectedGroup = (document.getElementById('filter-group').value || '').trim()
+  const body = document.getElementById('body')
+  const filtered = rows.filter(r => {
+    const name = (r.item_name || '').toLowerCase()
+    const uom = (r.stock_uom || '').trim()
+    const group = (r.item_group || '').trim()
+    const matchesName = name.includes(q)
+    const matchesUom = !selectedUom || uom === selectedUom
+    const matchesGroup = !selectedGroup || group === selectedGroup
+    return matchesName && matchesUom && matchesGroup
+  })
+  document.getElementById('count').innerText = filtered.length
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  if (currentPage > totalPages - 1) currentPage = totalPages - 1
+  const start = currentPage * pageSize
+  const pageRows = filtered.slice(start, start + pageSize)
+
+  if (!pageRows.length) {
+    body.innerHTML = '<tr><td colspan="6" class="p-10 text-center text-slate-400 italic">No items found.</td></tr>'
+    document.getElementById('range-start').innerText = 0
+    document.getElementById('range-end').innerText = 0
+    document.getElementById('prev-btn').disabled = true
+    document.getElementById('next-btn').disabled = true
+    return
+  }
+
+  body.innerHTML = pageRows.map(r => `
+    <tr class="hover:bg-slate-50">
+      <td class="px-5 py-4">
+        <div class="text-[10px] font-mono text-slate-500">ID: ${r.item_code || '-'}</div>
+        <div class="text-sm font-bold text-slate-800">Name: ${r.item_name || '-'}</div>
+      </td>
+      <td class="px-5 py-4 text-sm text-slate-700">${r.stock_uom || '-'}</td>
+      <td class="px-5 py-4 text-sm text-slate-700">${r.item_group || '-'}</td>
+      <td class="px-5 py-4 text-right font-mono text-slate-700">₱${Number(r.valuation_rate || 0).toLocaleString()}</td>
+      <td class="px-5 py-4 text-right font-mono text-emerald-700 font-bold">₱${Number(r.selling_price || 0).toLocaleString()}</td>
+      <td class="px-5 py-4 text-center">
+        <span class="px-2 py-1 rounded-full text-xs font-bold ${Number(r.disabled || 0) ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}">
+          ${Number(r.disabled || 0) ? 'Disabled' : 'Active'}
+        </span>
+      </td>
+    </tr>
+  `).join('')
+
+  document.getElementById('range-start').innerText = start + 1
+  document.getElementById('range-end').innerText = Math.min(start + pageSize, filtered.length)
+  document.getElementById('prev-btn').disabled = currentPage === 0
+  document.getElementById('next-btn').disabled = currentPage >= totalPages - 1
+}
+</script>
+<script src="/static/idle-timeout.js"></script>
+<script>
+initInactivityLogout(Number('{{ idle_timeout_seconds|int }}'));
+</script>
+</body>
+</html>

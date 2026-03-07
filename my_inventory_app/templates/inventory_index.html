@@ -31,9 +31,13 @@
         class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
         Home
       </a>
+      <a href="/inventory/items"
+        class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
+        Item List
+      </a>
       <button onclick="refreshData()"
         class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-all flex items-center gap-2">
-        <i class="fa-solid fa-sync"></i> Refresh Data
+        <i class="fa-solid fa-sync"></i> Refresh
       </button>
       <form method="POST" action="/logout">
         <button type="submit"
@@ -45,7 +49,7 @@
   </div>
 
   <!-- FILTERS -->
-  <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-4 gap-4">
+  <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-5 gap-4">
 
     <div>
       <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Company</label>
@@ -75,6 +79,13 @@
       <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Search Items</label>
       <input type="text" id="search-box" oninput="renderTable()" placeholder="Type SKU or Name..."
         class="w-full border border-slate-200 rounded-lg p-2 text-sm bg-slate-50 focus:border-emerald-500 outline-none"/>
+    </div>
+
+    <div class="flex items-end">
+      <label class="inline-flex items-center gap-2 text-xs font-bold text-slate-600 select-none">
+        <input id="toggle-zero-stock" type="checkbox" onchange="refreshData()" class="w-4 h-4 accent-emerald-600">
+        Show no-stock items
+      </label>
     </div>
 
   </div>
@@ -146,8 +157,9 @@ async function initReport() {
     allWarehouses = data.warehouses || []
 
     const compSelect = document.getElementById('filter-company')
-    compSelect.innerHTML = data.companies.map(c => `<option value="${c}">${c}</option>`).join('')
-    compSelect.selectedIndex = 0
+    const companyOptions = (data.companies || []).map(c => `<option value="${c}">${c}</option>`).join('')
+    compSelect.innerHTML = '<option value="">All Companies</option>' + companyOptions
+    compSelect.value = ''
     updateWarehouseFilter()
     refreshData()
   } catch(e) {
@@ -164,7 +176,11 @@ function companyChanged() {
 function updateWarehouseFilter() {
   const company = document.getElementById('filter-company').value
   const whSelect = document.getElementById('filter-warehouse')
-  const filtered = allWarehouses.filter(w => w.company === company)
+  const filtered = allWarehouses.filter(w => {
+    const whCompany = (w.company || '').trim()
+    if (company === '') return true
+    return whCompany === company
+  })
   whSelect.innerHTML = '<option value="">All Warehouses</option>' +
     filtered.map(w => `<option value="${w.name}">${w.name}</option>`).join('')
 }
@@ -175,10 +191,10 @@ async function refreshData() {
 
   const company = document.getElementById('filter-company').value
   const warehouse = document.getElementById('filter-warehouse').value
+  const includeZero = document.getElementById('toggle-zero-stock')?.checked ? '1' : '0'
 
   try {
-    // ✅ Correct endpoint
-    const res = await fetch(`/inventory/api/stock_report?company=${encodeURIComponent(company)}&warehouse=${encodeURIComponent(warehouse)}`)
+    const res = await fetch(`/inventory/api/stock_report?company=${encodeURIComponent(company)}&warehouse=${encodeURIComponent(warehouse)}&include_zero_stock=${includeZero}`)
     fullStockData = await res.json()
     currentPage = 0
     renderTable()
@@ -198,6 +214,7 @@ function changePage(direction) {
 function renderTable() {
   const wh = document.getElementById('filter-warehouse').value
   const sort = document.getElementById('sort-by').value
+  const showZeroStock = document.getElementById('toggle-zero-stock')?.checked
   const search = document.getElementById('search-box').value.toLowerCase()
   const body = document.getElementById('report-body')
 
@@ -205,9 +222,13 @@ function renderTable() {
   filteredData = fullStockData.filter(item => {
     const itemName = (item.item_name || "").toLowerCase()
     const itemCode = (item.item_code || "").toLowerCase()
-    const matchesWh = wh === "" || item.warehouse === wh
+    const rowWarehouse = (item.warehouse || "").trim()
+    const matchesWh = wh === ""
+      ? true : rowWarehouse === wh
     const matchesSearch = itemName.includes(search) || itemCode.includes(search)
-    return matchesWh && matchesSearch
+    const qty = Number(item.actual_qty || 0)
+    const matchesStock = showZeroStock ? true : qty > 0
+    return matchesWh && matchesSearch && matchesStock
   })
 
   // Sort
@@ -226,8 +247,8 @@ function renderTable() {
     body.innerHTML = pageItems.map((item, idx) => `
       <tr class="hover:bg-slate-50">
         <td class="px-6 py-4">
-          <div class="font-bold text-slate-800">${item.item_name || "Unknown Item"}</div>
-          <div class="text-[10px] font-mono text-slate-400">${item.item_code || "-"}</div>
+          <div class="text-[10px] font-mono text-slate-500">ID: ${item.item_code || "-"}</div>
+          <div class="text-sm font-bold text-slate-800">Name: ${item.item_name || "-"}</div>
         </td>
         <td class="px-6 py-4 text-xs text-slate-500">${item.warehouse || "-"}</td>
         <td class="px-6 py-4 text-center">
@@ -394,7 +415,7 @@ async function saveRowRates(encodedItemCode, buyInputId, sellInputId, btnEl) {
 </script>
 <script src="/static/idle-timeout.js"></script>
 <script>
-initInactivityLogout(30)
+initInactivityLogout(Number('{{ idle_timeout_seconds|int }}'))
 </script>
 
 </body>
