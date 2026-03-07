@@ -7,11 +7,11 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
-<body class="bg-slate-100 min-h-screen p-4 sm:p-8" onload="initApp()">
+<body class="bg-slate-100 min-h-screen p-4 sm:p-8 overflow-x-hidden" onload="initApp()">
 
     <div class="max-w-6xl mx-auto space-y-6">
-        <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex justify-between items-center border-b-4 border-amber-500">
-            <div class="flex items-center gap-4">
+        <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex flex-wrap justify-between items-center gap-3 border-b-4 border-amber-500">
+            <div class="flex items-center gap-4 min-w-0">
                 <div>
                     <h1 class="text-xl font-black tracking-tight leading-none uppercase">
                         <span class="text-amber-500">SMB Information Technology Solutions</span>
@@ -19,18 +19,33 @@
                     <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest mt-1">Enterprise POS Terminal</p>
                 </div>
             </div>
-            <div class="flex items-center gap-3">
-                <a href="/" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Home</a>
-                <button type="button" onclick="window.location.reload()" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
-                    <i class="fa-solid fa-sync mr-1"></i>Refresh
-                </button>
-                <a href="/sales/report" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Invoice Report</a>
-                <form method="POST" action="/logout">
-                    <button type="submit" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Logout</button>
-                </form>
-                <div class="text-right hidden sm:block">
-                    <p id="clock" class="text-xl font-mono font-bold text-amber-500"></p>
-                    <p class="text-[10px] uppercase tracking-widest opacity-50">Iloilo City Hub</p>
+            <div class="w-full md:w-auto relative">
+                <div class="hidden md:flex items-center justify-end gap-2">
+                    <a href="/" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Home</a>
+                    <button type="button" onclick="window.location.reload()" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
+                        <i class="fa-solid fa-sync mr-1"></i>Refresh
+                    </button>
+                    <a href="/sales/report" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Invoice Report</a>
+                    <form method="POST" action="/logout">
+                        <button type="submit" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Logout</button>
+                    </form>
+                    <div class="text-right hidden lg:block">
+                        <p id="clock" class="text-xl font-mono font-bold text-amber-500"></p>
+                        <p class="text-[10px] uppercase tracking-widest opacity-50">Iloilo City Hub</p>
+                    </div>
+                </div>
+                <div class="md:hidden flex justify-end">
+                    <button type="button" onclick="toggleTopNavMenu('sales-top-menu')" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
+                        Menu
+                    </button>
+                </div>
+                <div id="sales-top-menu" class="hidden md:hidden absolute right-0 mt-2 w-52 bg-slate-800 border border-amber-500/40 rounded-xl p-2 shadow-xl z-50 space-y-1">
+                    <a href="/" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Home</a>
+                    <button type="button" onclick="window.location.reload()" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Refresh</button>
+                    <a href="/sales/report" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Invoice Report</a>
+                    <form method="POST" action="/logout">
+                        <button type="submit" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Logout</button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -201,6 +216,12 @@
         }
 
         function updateClock() { document.getElementById('clock').innerText = new Date().toLocaleTimeString(); }
+
+        function toggleTopNavMenu(id) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.classList.toggle('hidden');
+        }
 
         function filterAllByCompany() {
             const selectedCompany = document.getElementById('company').value;

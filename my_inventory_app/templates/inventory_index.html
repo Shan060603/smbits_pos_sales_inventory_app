@@ -9,12 +9,12 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
 </head>
-<body class="bg-slate-100 min-h-screen p-4 sm:p-8" onload="initReport()">
+<body class="bg-slate-100 min-h-screen p-4 sm:p-8 overflow-x-hidden" onload="initReport()">
 
 <div class="max-w-7xl mx-auto space-y-6">
 
   <!-- HEADER -->
-  <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex justify-between items-center border-b-4 border-emerald-500">
+  <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex flex-wrap justify-between items-center gap-3 border-b-4 border-emerald-500">
     <div class="flex items-center gap-4">
       <div>
         <h1 class="text-xl font-black uppercase tracking-tight">
@@ -26,25 +26,40 @@
       </div>
     </div>
 
-    <div class="flex items-center gap-2">
-      <a href="/"
-        class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
-        Home
-      </a>
-      <a href="/inventory/items"
-        class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
-        Item List
-      </a>
-      <button onclick="refreshData()"
-        class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-all flex items-center gap-2">
-        <i class="fa-solid fa-sync"></i> Refresh
-      </button>
-      <form method="POST" action="/logout">
-        <button type="submit"
-          class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-all">
-          Logout
+    <div class="w-full md:w-auto relative">
+      <div class="hidden md:flex items-center justify-end gap-2">
+        <a href="/"
+          class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
+          Home
+        </a>
+        <a href="/inventory/items"
+          class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
+          Item List
+        </a>
+        <button onclick="refreshData()"
+          class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-all flex items-center gap-2">
+          <i class="fa-solid fa-sync"></i> Refresh
         </button>
-      </form>
+        <form method="POST" action="/logout">
+          <button type="submit"
+            class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-all">
+            Logout
+          </button>
+        </form>
+      </div>
+      <div class="md:hidden flex justify-end">
+        <button type="button" onclick="toggleTopNavMenu('inventory-top-menu')" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
+          Menu
+        </button>
+      </div>
+      <div id="inventory-top-menu" class="hidden md:hidden absolute right-0 mt-2 w-52 bg-slate-800 border border-emerald-500/40 rounded-xl p-2 shadow-xl z-50 space-y-1">
+        <a href="/" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Home</a>
+        <a href="/inventory/items" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Item List</a>
+        <button type="button" onclick="refreshData()" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Refresh</button>
+        <form method="POST" action="/logout">
+          <button type="submit" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Logout</button>
+        </form>
+      </div>
     </div>
   </div>
 
@@ -148,6 +163,12 @@ function showRateStatus(message, ok = true) {
   el.className = `p-3 rounded-lg text-xs font-bold text-center ${ok ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`
   el.classList.remove('hidden')
   setTimeout(() => el.classList.add('hidden'), 1800)
+}
+
+function toggleTopNavMenu(id) {
+  const el = document.getElementById(id)
+  if (!el) return
+  el.classList.toggle('hidden')
 }
 
 async function initReport() {

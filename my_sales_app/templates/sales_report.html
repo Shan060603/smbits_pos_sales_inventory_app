@@ -7,28 +7,43 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
-<body class="bg-slate-100 min-h-screen p-4 sm:p-8" onload="initReport()">
+<body class="bg-slate-100 min-h-screen p-4 sm:p-8 overflow-x-hidden" onload="initReport()">
     <div class="max-w-7xl mx-auto space-y-6">
-        <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex justify-between items-center border-b-4 border-cyan-500">
+        <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex flex-wrap justify-between items-center gap-3 border-b-4 border-cyan-500">
             <div>
                 <h1 class="text-xl font-black uppercase tracking-tight">Sales Invoice Report</h1>
                 <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest">Real-time ERPNext Billing Summary</p>
             </div>
-            <div class="flex items-center gap-2">
-                <a href="/" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
-                    Home
-                </a>
-                <button onclick="loadReport()" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
-                    <i class="fa-solid fa-sync mr-1"></i> Refresh
-                </button>
-                <a href="/sales" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
-                    Back To POS
-                </a>
-                <form method="POST" action="/logout">
-                    <button type="submit" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
-                        Logout
+            <div class="w-full md:w-auto relative">
+                <div class="hidden md:flex items-center justify-end gap-2">
+                    <a href="/" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
+                        Home
+                    </a>
+                    <button onclick="loadReport()" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
+                        <i class="fa-solid fa-sync mr-1"></i> Refresh
                     </button>
-                </form>
+                    <a href="/sales" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
+                        Back To POS
+                    </a>
+                    <form method="POST" action="/logout">
+                        <button type="submit" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
+                            Logout
+                        </button>
+                    </form>
+                </div>
+                <div class="md:hidden flex justify-end">
+                    <button type="button" onclick="toggleTopNavMenu('sales-report-top-menu')" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
+                        Menu
+                    </button>
+                </div>
+                <div id="sales-report-top-menu" class="hidden md:hidden absolute right-0 mt-2 w-52 bg-slate-800 border border-cyan-500/40 rounded-xl p-2 shadow-xl z-50 space-y-1">
+                    <a href="/" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Home</a>
+                    <button type="button" onclick="loadReport()" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Refresh</button>
+                    <a href="/sales" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Back To POS</a>
+                    <form method="POST" action="/logout">
+                        <button type="submit" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Logout</button>
+                    </form>
+                </div>
             </div>
         </div>
 
@@ -108,6 +123,12 @@
     <script>
         function peso(v) {
             return `₱${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+
+        function toggleTopNavMenu(id) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.classList.toggle('hidden');
         }
 
         async function initReport() {
