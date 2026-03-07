@@ -137,6 +137,37 @@ class SMBITSInventoryBridge:
             })
         return formatted
 
+    def _apply_item_prices(self, rows):
+        """Override UI rates using Item Price lists when available."""
+        item_codes = sorted({r.get("item_code") for r in rows if r.get("item_code")})
+        if not item_codes:
+            return rows
+
+        buying_rows = self.get_resource_list(
+            "Item Price",
+            filters=[["item_code", "in", item_codes], ["price_list", "=", "Standard Buying"]],
+            fields=["item_code", "price_list_rate"],
+            start=0,
+            page_length=2000
+        )
+        selling_rows = self.get_resource_list(
+            "Item Price",
+            filters=[["item_code", "in", item_codes], ["price_list", "=", "Standard Selling"]],
+            fields=["item_code", "price_list_rate"],
+            start=0,
+            page_length=2000
+        )
+        buying_map = {r.get("item_code"): float(r.get("price_list_rate") or 0) for r in buying_rows}
+        selling_map = {r.get("item_code"): float(r.get("price_list_rate") or 0) for r in selling_rows}
+
+        for row in rows:
+            code = row.get("item_code")
+            if code in buying_map:
+                row["valuation_rate"] = buying_map[code]
+            if code in selling_map:
+                row["selling_price"] = selling_map[code]
+        return rows
+
     def _get_stock_from_bin(self, company=None, warehouse=None, start=0, page_length=200):
         """
         Fallback path when Stock Balance report returns no rows.
@@ -198,11 +229,11 @@ class SMBITSInventoryBridge:
                     page_length=page_length
                 )
                 print(f"ℹ️ SMBITS Stock Balance rows=0, Bin fallback rows={len(fallback_data)}")
-                return fallback_data
+                return self._apply_item_prices(fallback_data)
 
             # Slice for front-end pagination and normalize keys.
             paged_data = data[start:start + page_length]
-            return self._format_rows_for_ui(paged_data)
+            return self._apply_item_prices(self._format_rows_for_ui(paged_data))
 
         except Exception as e:
             print(f"❌ SMBITS Full Stock Fetch Error: {e}")
@@ -232,6 +263,36 @@ class SMBITSInventoryBridge:
             return res.json()
         except Exception as e:
             return {"error": str(e)}
+
+    def upsert_item_price(self, item_code, price_list, rate):
+        """Update existing Item Price or create one if missing."""
+        try:
+            existing = self.get_resource_list(
+                "Item Price",
+                filters=[["item_code", "=", item_code], ["price_list", "=", price_list]],
+                fields=["name"],
+                start=0,
+                page_length=1
+            )
+            payload = {"price_list_rate": float(rate)}
+            if existing:
+                name = existing[0].get("name")
+                endpoint = f"{self.url}/api/resource/Item Price/{name}"
+                res = self.session.put(endpoint, json=payload, timeout=25)
+                res.raise_for_status()
+                return {"ok": True, "data": res.json().get("data")}
+
+            create_payload = {
+                "item_code": item_code,
+                "price_list": price_list,
+                "price_list_rate": float(rate)
+            }
+            endpoint = f"{self.url}/api/resource/Item Price"
+            res = self.session.post(endpoint, json=create_payload, timeout=25)
+            res.raise_for_status()
+            return {"ok": True, "data": res.json().get("data")}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
 
 
 # ----------------------------------------------------
@@ -296,3 +357,27 @@ def adjust_stock():
         purpose=data.get("purpose", "Material Receipt")
     )
     return jsonify(result)
+
+
+@inventory_bp.route("/api/item_rate", methods=["POST"])
+def update_item_rate():
+    """Save buying/selling rate directly to Item Price."""
+    data = request.json or {}
+    item_code = (data.get("item_code") or "").strip()
+    price_type = (data.get("price_type") or "").strip().lower()
+    rate = data.get("rate")
+
+    if not item_code:
+        return jsonify({"status": "error", "message": "Item code is required."}), 400
+    if price_type not in ("buying", "selling"):
+        return jsonify({"status": "error", "message": "Invalid price type."}), 400
+    try:
+        rate = float(rate)
+    except (TypeError, ValueError):
+        return jsonify({"status": "error", "message": "Rate must be numeric."}), 400
+
+    price_list = "Standard Buying" if price_type == "buying" else "Standard Selling"
+    result = inventory_engine.upsert_item_price(item_code, price_list, rate)
+    if result.get("ok"):
+        return jsonify({"status": "success", "message": f"{price_list} updated.", "rate": rate})
+    return jsonify({"status": "error", "message": result.get("error") or "Failed to save rate."}), 400

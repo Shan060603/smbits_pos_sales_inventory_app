@@ -111,6 +111,8 @@
 
   </div>
 
+  <div id="rate-status" class="hidden p-3 rounded-lg text-xs font-bold text-center"></div>
+
 </div>
 
 <script>
@@ -119,6 +121,14 @@ let filteredData = []
 let allWarehouses = []
 let currentPage = 0
 const pageSize = 20
+
+function showRateStatus(message, ok = true) {
+  const el = document.getElementById('rate-status')
+  el.innerText = message
+  el.className = `p-3 rounded-lg text-xs font-bold text-center ${ok ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`
+  el.classList.remove('hidden')
+  setTimeout(() => el.classList.add('hidden'), 1800)
+}
 
 async function initReport() {
   try {
@@ -129,6 +139,7 @@ async function initReport() {
     const compSelect = document.getElementById('filter-company')
     compSelect.innerHTML = data.companies.map(c => `<option value="${c}">${c}</option>`).join('')
     compSelect.selectedIndex = 0
+    updateWarehouseFilter()
     refreshData()
   } catch(e) {
     console.error("Init Error:", e)
@@ -203,7 +214,7 @@ function renderTable() {
   if(pageItems.length === 0) {
     body.innerHTML = `<tr><td colspan="5" class="p-12 text-center text-slate-400 italic">No matching records found.</td></tr>`
   } else {
-    body.innerHTML = pageItems.map(item => `
+    body.innerHTML = pageItems.map((item, idx) => `
       <tr class="hover:bg-slate-50">
         <td class="px-6 py-4">
           <div class="font-bold text-slate-800">${item.item_name || "Unknown Item"}</div>
@@ -215,8 +226,39 @@ function renderTable() {
             ${item.actual_qty || 0}
           </span>
         </td>
-        <td class="px-6 py-4 text-right font-mono text-slate-600">₱${(item.valuation_rate || 0).toLocaleString()}</td>
-        <td class="px-6 py-4 text-right font-mono text-emerald-600 font-bold">₱${(item.selling_price || 0).toLocaleString()}</td>
+        <td class="px-6 py-4 text-right">
+          <div class="flex items-center justify-end gap-1">
+            <span class="text-slate-400 text-xs">₱</span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value="${Number(item.valuation_rate || 0)}"
+              id="buy-rate-${start + idx}"
+              class="w-28 border border-slate-200 rounded px-2 py-1 text-right text-sm font-mono text-slate-700"
+            />
+          </div>
+        </td>
+        <td class="px-6 py-4 text-right">
+          <div class="flex items-center justify-end gap-2">
+            <span class="text-emerald-500 text-xs">₱</span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value="${Number(item.selling_price || 0)}"
+              id="sell-rate-${start + idx}"
+              class="w-28 border border-slate-200 rounded px-2 py-1 text-right text-sm font-mono text-emerald-700 font-bold"
+            />
+            <button
+              type="button"
+              onclick="saveRowRates('${encodeURIComponent(item.item_code || '')}', 'buy-rate-${start + idx}', 'sell-rate-${start + idx}', this)"
+              class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold"
+            >
+              Save
+            </button>
+          </div>
+        </td>
       </tr>
     `).join('')
   }
@@ -227,6 +269,118 @@ function renderTable() {
   document.getElementById('range-start').innerText = rangeStart
   document.getElementById('range-end').innerText = rangeEnd
   document.getElementById('prev-btn').disabled = currentPage === 0
+}
+
+async function saveRate(encodedItemCode, priceType, value, inputEl) {
+  const itemCode = decodeURIComponent(encodedItemCode || '')
+  const num = Number(value)
+  if (!itemCode || Number.isNaN(num) || num < 0) {
+    showRateStatus('Invalid rate value.', false)
+    return
+  }
+
+  const previous = priceType === 'buying' ? (fullStockData.find(r => r.item_code === itemCode)?.valuation_rate ?? 0) : (fullStockData.find(r => r.item_code === itemCode)?.selling_price ?? 0)
+  inputEl.disabled = true
+  try {
+    const res = await fetch('/inventory/api/item_rate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        item_code: itemCode,
+        price_type: priceType,
+        rate: num
+      })
+    })
+    const result = await res.json()
+    if (!res.ok) {
+      inputEl.value = previous
+      showRateStatus(result.message || 'Failed to save rate.', false)
+      return
+    }
+
+    // Keep table data synchronized for all rows with the same item code.
+    fullStockData.forEach(row => {
+      if (row.item_code === itemCode) {
+        if (priceType === 'buying') row.valuation_rate = num
+        if (priceType === 'selling') row.selling_price = num
+      }
+    })
+    showRateStatus(`${itemCode}: ${priceType} rate saved.`)
+  } catch (e) {
+    inputEl.value = previous
+    showRateStatus(`Save failed: ${e.message}`, false)
+  } finally {
+    inputEl.disabled = false
+  }
+}
+
+async function saveRowRates(encodedItemCode, buyInputId, sellInputId, btnEl) {
+  const buyInput = document.getElementById(buyInputId)
+  const sellInput = document.getElementById(sellInputId)
+  const itemCode = decodeURIComponent(encodedItemCode || '')
+  if (!buyInput || !sellInput || !itemCode) return
+
+  const buying = Number(buyInput.value)
+  const selling = Number(sellInput.value)
+  if (Number.isNaN(buying) || Number.isNaN(selling) || buying < 0 || selling < 0) {
+    showRateStatus('Buying/Selling rates must be valid positive numbers.', false)
+    return
+  }
+
+  // Compare against the row's own last saved values so we only send changed fields.
+  const prevBuying = Number(buyInput.defaultValue || 0)
+  const prevSelling = Number(sellInput.defaultValue || 0)
+  const buyingChanged = buying !== prevBuying
+  const sellingChanged = selling !== prevSelling
+
+  if (!buyingChanged && !sellingChanged) {
+    showRateStatus('No rate changes to save.')
+    return
+  }
+
+  btnEl.disabled = true
+  buyInput.disabled = true
+  sellInput.disabled = true
+
+  try {
+    if (buyingChanged) {
+      const buyRes = await fetch('/inventory/api/item_rate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ item_code: itemCode, price_type: 'buying', rate: buying })
+      })
+      const buyJson = await buyRes.json()
+      if (!buyRes.ok) throw new Error(buyJson.message || 'Failed to save buying rate')
+    }
+
+    if (sellingChanged) {
+      const sellRes = await fetch('/inventory/api/item_rate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ item_code: itemCode, price_type: 'selling', rate: selling })
+      })
+      const sellJson = await sellRes.json()
+      if (!sellRes.ok) throw new Error(sellJson.message || 'Failed to save selling rate')
+    }
+
+    fullStockData.forEach(row => {
+      if (row.item_code === itemCode) {
+        if (buyingChanged) row.valuation_rate = buying
+        if (sellingChanged) row.selling_price = selling
+      }
+    })
+    if (buyingChanged) buyInput.defaultValue = String(buying)
+    if (sellingChanged) sellInput.defaultValue = String(selling)
+    if (buyingChanged && sellingChanged) showRateStatus(`${itemCode}: buying and selling rates saved.`)
+    else if (buyingChanged) showRateStatus(`${itemCode}: buying rate saved.`)
+    else showRateStatus(`${itemCode}: selling rate saved.`)
+  } catch (e) {
+    showRateStatus(e.message || 'Failed to save rates.', false)
+  } finally {
+    btnEl.disabled = false
+    buyInput.disabled = false
+    sellInput.disabled = false
+  }
 }
 </script>
 
