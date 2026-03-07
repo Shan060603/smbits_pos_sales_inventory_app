@@ -2,7 +2,7 @@ import os
 import socket
 import time
 import requests
-from flask import Flask, render_template, Response, request, redirect, url_for, session, flash
+from flask import Flask, render_template, Response, request, redirect, url_for, session, flash, send_from_directory
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -198,7 +198,9 @@ def health():
 
 @app.route("/favicon.ico")
 def favicon():
-    """Avoid repeated 404 noise when no favicon asset is configured."""
+    """Serve favicon from project root when available."""
+    if os.path.exists("favicon.ico"):
+        return send_from_directory(".", "favicon.ico")
     return Response(status=204)
 
 
