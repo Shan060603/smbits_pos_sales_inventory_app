@@ -14,9 +14,12 @@
                 <h1 class="text-2xl font-bold uppercase tracking-tight">SolarEco <span class="font-light opacity-80">Purchasing</span></h1>
                 <p class="text-indigo-100 text-sm italic">External Supplier Procurement Portal</p>
             </div>
-            <div class="text-right hidden sm:block">
-                <p id="clock" class="text-xl font-mono font-bold"></p>
-                <p class="text-xs opacity-75">March 7, 2026</p>
+            <div class="flex items-center gap-3">
+                <a href="/purchases/report" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Reports</a>
+                <div class="text-right hidden sm:block">
+                    <p id="clock" class="text-xl font-mono font-bold"></p>
+                    <p class="text-xs opacity-75">March 8, 2026</p>
+                </div>
             </div>
         </div>
 
@@ -26,9 +29,13 @@
                     <h2 class="font-bold text-slate-800 border-b pb-3 mb-4 text-sm uppercase tracking-wider">Procurement Details</h2>
                     <div class="space-y-4">
                         <div>
-                            <label class="block text-[10px] font-bold text-slate-400 uppercase">Supplier / Vendor</label>
-                            <input list="supplier_list" id="supp" class="w-full border-2 border-slate-50 rounded-lg p-3 mt-1 outline-none focus:border-indigo-500 text-sm" placeholder="Search supplier...">
-                            <datalist id="supplier_list"></datalist>
+                            <div class="flex items-center justify-between">
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase">Supplier / Vendor</label>
+                                <button type="button" onclick="addSupplier()" class="text-[10px] font-bold uppercase text-indigo-600 hover:text-indigo-700">+ Add</button>
+                            </div>
+                            <select id="supp" class="w-full border-2 border-slate-50 rounded-lg p-3 mt-1 outline-none focus:border-indigo-500 text-sm bg-white">
+                                <option value="">Select supplier...</option>
+                            </select>
                         </div>
                         <div>
                             <label class="block text-[10px] font-bold text-slate-400 uppercase">Target Company</label>
@@ -63,10 +70,12 @@
                         <div class="flex-grow min-w-[200px]">
                             <div class="flex justify-between items-center mb-1">
                                 <label class="text-[10px] font-bold text-indigo-500 uppercase ml-1">Find Material / Product</label>
+                                <button type="button" onclick="openItemModal()" class="text-[10px] font-bold uppercase text-indigo-600 hover:text-indigo-700">+ Add Item</button>
                                 <span id="stock-display" class="text-[10px] font-bold bg-white text-indigo-600 px-2 py-0.5 rounded shadow-sm hidden"></span>
                             </div>
-                            <input list="item_list" id="item_input" onchange="fetchPriceAndStock()" class="w-full border border-indigo-200 rounded-lg p-3 outline-none focus:ring-2 focus:ring-indigo-400 text-sm" placeholder="Search by SKU or Name...">
-                            <datalist id="item_list"></datalist>
+                            <select id="item_input" onchange="fetchPriceAndStock()" class="w-full border border-indigo-200 rounded-lg p-3 outline-none focus:ring-2 focus:ring-indigo-400 text-sm bg-white">
+                                <option value="">Choose an item...</option>
+                            </select>
                         </div>
                         <div class="w-20">
                             <label class="block text-[10px] font-bold text-indigo-500 uppercase mb-1 ml-1">Qty</label>
@@ -109,11 +118,49 @@
         </div>
     </div>
 
+    <div id="item-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 border border-slate-200">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-black text-slate-800 uppercase">Add New Item</h3>
+                <button type="button" onclick="closeItemModal()" class="text-slate-500 hover:text-slate-700 text-xl">×</button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Item Code *</label>
+                    <input type="text" id="new_item_code" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="e.g. CABLE-001">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Item Name</label>
+                    <input type="text" id="new_item_name" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="e.g. Solar Cable 10m">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">UOM *</label>
+                    <select id="new_item_uom" class="w-full border border-slate-200 rounded-lg p-2 text-sm bg-white">
+                        <option value="">Select UOM...</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Sales Price</label>
+                    <input type="number" id="new_item_sales_price" min="0" step="0.01" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="0.00">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Purchase Price</label>
+                    <input type="number" id="new_item_purchase_price" min="0" step="0.01" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="0.00">
+                </div>
+            </div>
+            <div class="mt-5 flex gap-3 justify-end">
+                <button type="button" onclick="closeItemModal()" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-600 text-sm font-bold">Cancel</button>
+                <button type="button" onclick="addItem()" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold">Save Item</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let cart = [];
         let allWarehouses = [];
-        let itemCodeToName = {}; 
-        let itemNameToCode = {}; 
+        let allSuppliers = [];
+        let allItems = [];
+        let itemCodeToName = {};
 
         async function initApp() {
             updateClock();
@@ -131,16 +178,18 @@
                 const data = await response.json();
                 
                 allWarehouses = data.warehouses || [];
+                allSuppliers = data.suppliers || [];
+                allItems = data.items || [];
                 
                 // Populate Dropdowns
-                fillDatalist('supplier_list', data.suppliers.map(s => s.name));
+                fillSelect('supp', allSuppliers.map(s => s.name), 'Select supplier...');
                 fillSelect('company', data.companies.map(c => c.name));
-                
-                const itemDatalist = document.getElementById('item_list');
-                itemDatalist.innerHTML = data.items.map(item => {
+                fillSelect('new_item_uom', (data.uoms || []).map(u => u.name), 'Select UOM...');
+
+                const itemSelect = document.getElementById('item_input');
+                itemSelect.innerHTML = '<option value="">Choose an item...</option>' + allItems.map(item => {
                     itemCodeToName[item.name] = item.item_name;
-                    itemNameToCode[item.item_name] = item.name;
-                    return `<option value="${item.name}">${item.item_name}</option>`;
+                    return `<option value="${item.name}">${item.name} - ${item.item_name || item.name}</option>`;
                 }).join('');
 
                 filterWarehouses();
@@ -155,16 +204,14 @@
             document.getElementById('warehouse').innerHTML = filtered.map(w => `<option value="${w.name}">${w.name}</option>`).join('');
         }
 
-        function fillDatalist(id, list) { 
-            document.getElementById(id).innerHTML = list.map(v => `<option value="${v}">`).join(''); 
-        }
-        function fillSelect(id, list) { 
-            document.getElementById(id).innerHTML = list.map(v => `<option value="${v}">${v}</option>`).join(''); 
+        function fillSelect(id, list, placeholder = '') {
+            const el = document.getElementById(id);
+            const placeholderHtml = placeholder ? `<option value="">${placeholder}</option>` : '';
+            el.innerHTML = placeholderHtml + list.map(v => `<option value="${v}">${v}</option>`).join('');
         }
 
         async function fetchPriceAndStock() {
-            const inputVal = document.getElementById('item_input').value;
-            const itemCode = itemCodeToName[inputVal] ? inputVal : itemNameToCode[inputVal] || inputVal;
+            const itemCode = document.getElementById('item_input').value;
             const warehouse = document.getElementById('warehouse').value;
             
             if (!itemCode || !warehouse) return;
@@ -173,21 +220,27 @@
                 // FIXED: Using Blueprint paths
                 const [priceRes, stockRes] = await Promise.all([
                     fetch(`/purchases/api/price/${encodeURIComponent(itemCode)}`),
-                    fetch(`/inventory/api/stock?item_code=${encodeURIComponent(itemCode)}&warehouse=${encodeURIComponent(warehouse)}`)
+                    fetch(`/sales/api/get_stock?item_code=${encodeURIComponent(itemCode)}&warehouse=${encodeURIComponent(warehouse)}`)
                 ]);
                 const priceData = await priceRes.json();
                 const stockData = await stockRes.json();
                 
                 document.getElementById('rate').value = priceData.price || 0;
                 const stockEl = document.getElementById('stock-display');
-                stockEl.innerText = `STOCK: ${stockData.actual_qty || 0}`;
+                stockEl.innerText = `STOCK: ${stockData.qty || 0}`;
                 stockEl.classList.remove('hidden');
             } catch (err) { console.error("Fetch Error:", err); }
         }
 
+        function updateCartQty(index, delta) {
+            if (!cart[index]) return;
+            const nextQty = Number(cart[index].qty || 0) + delta;
+            cart[index].qty = nextQty < 1 ? 1 : nextQty;
+            renderCart();
+        }
+
         function addToCart() {
-            const inputVal = document.getElementById('item_input').value;
-            const itemCode = itemCodeToName[inputVal] ? inputVal : itemNameToCode[inputVal] || inputVal;
+            const itemCode = document.getElementById('item_input').value;
             const qty = parseFloat(document.getElementById('qty').value);
             const rate = parseFloat(document.getElementById('rate').value);
             const warehouse = document.getElementById('warehouse').value;
@@ -197,6 +250,8 @@
             cart.push({ item_code: itemCode, qty, rate, warehouse });
             renderCart();
             document.getElementById('item_input').value = '';
+            document.getElementById('qty').value = 1;
+            document.getElementById('rate').value = '';
         }
 
         function renderCart() {
@@ -208,7 +263,13 @@
                 return `
                     <tr class="border-b">
                         <td class="py-4 font-bold text-xs">${itemCodeToName[row.item_code] || row.item_code}</td>
-                        <td class="text-center">${row.qty}</td>
+                        <td class="text-center">
+                            <div class="inline-flex items-center gap-2">
+                                <button type="button" onclick="updateCartQty(${i}, -1)" class="w-7 h-7 rounded border border-slate-300 text-slate-700 hover:bg-slate-100">-</button>
+                                <span class="min-w-[24px] inline-block text-center">${row.qty}</span>
+                                <button type="button" onclick="updateCartQty(${i}, 1)" class="w-7 h-7 rounded border border-slate-300 text-slate-700 hover:bg-slate-100">+</button>
+                            </div>
+                        </td>
                         <td>₱${row.rate.toFixed(2)}</td>
                         <td class="font-bold">₱${lineTotal.toFixed(2)}</td>
                         <td class="text-right"><button onclick="cart.splice(${i},1);renderCart()" class="text-red-500">✕</button></td>
@@ -219,6 +280,7 @@
 
         async function submitOrder() {
             if (cart.length === 0) return;
+            if (!document.getElementById('supp').value) return alert("Select a supplier.");
             const btn = document.getElementById('submit-btn');
             const status = document.getElementById('status');
             
@@ -243,13 +305,78 @@
                 });
                 const result = await response.json();
                 if (response.ok) {
-                    status.innerText = "SUCCESS: " + result.message;
+                    status.innerText = "✅ SUCCESS: " + result.message;
+                    status.className = "mt-4 p-3 rounded-lg text-center text-xs font-bold bg-emerald-100 text-emerald-700 block";
                     cart = []; renderCart();
                 } else {
                     status.innerText = "ERROR: " + result.message;
                 }
             } catch (err) { status.innerText = "FAILED: " + err.message; }
             finally { btn.disabled = false; }
+        }
+
+        async function addSupplier() {
+            const supplierName = prompt('Enter supplier name:');
+            if (!supplierName || !supplierName.trim()) return;
+            const res = await fetch('/purchases/api/suppliers', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ supplier_name: supplierName.trim() })
+            });
+            const result = await res.json();
+            if (!res.ok) return alert(result.message || 'Failed to create supplier');
+
+            const created = result.supplier || {};
+            const createdName = created.name || supplierName.trim();
+            allSuppliers.push({ name: createdName, supplier_name: createdName });
+            fillSelect('supp', allSuppliers.map(s => s.name), 'Select supplier...');
+            document.getElementById('supp').value = createdName;
+        }
+
+        function openItemModal() {
+            document.getElementById('item-modal').classList.remove('hidden');
+            document.getElementById('item-modal').classList.add('flex');
+        }
+
+        function closeItemModal() {
+            document.getElementById('item-modal').classList.add('hidden');
+            document.getElementById('item-modal').classList.remove('flex');
+        }
+
+        async function addItem() {
+            const payload = {
+                item_code: document.getElementById('new_item_code').value.trim(),
+                item_name: document.getElementById('new_item_name').value.trim(),
+                stock_uom: document.getElementById('new_item_uom').value,
+                sales_price: document.getElementById('new_item_sales_price').value || 0,
+                purchase_price: document.getElementById('new_item_purchase_price').value || 0
+            };
+
+            if (!payload.item_code || !payload.stock_uom) {
+                return alert('Item code and UOM are required.');
+            }
+
+            const res = await fetch('/purchases/api/items', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const result = await res.json();
+            if (!res.ok) return alert(result.message || 'Failed to create item');
+
+            const created = result.item || {};
+            const code = created.name || payload.item_code;
+            const name = created.item_name || payload.item_name || code;
+            allItems.push({ name: code, item_name: name });
+            itemCodeToName[code] = name;
+
+            const itemSelect = document.getElementById('item_input');
+            itemSelect.innerHTML = '<option value="">Choose an item...</option>' + allItems.map(item =>
+                `<option value="${item.name}">${item.name} - ${item.item_name || item.name}</option>`
+            ).join('');
+            itemSelect.value = code;
+            document.getElementById('rate').value = Number(payload.purchase_price || 0);
+            closeItemModal();
         }
     </script>
 </body>

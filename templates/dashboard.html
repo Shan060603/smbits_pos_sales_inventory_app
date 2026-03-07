@@ -44,6 +44,68 @@
         </div>
     </div>
 
+    <div id="salesModal" onclick="toggleSalesModal()" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300">
+        <div onclick="event.stopPropagation()" class="bg-slate-800 border border-slate-700 w-full max-w-md p-8 rounded-[2.5rem] shadow-2xl relative">
+            <button onclick="toggleSalesModal()" class="absolute top-6 right-6 text-slate-500 hover:text-white transition-colors">
+                <i class="fa-solid fa-circle-xmark text-2xl"></i>
+            </button>
+
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 bg-amber-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <i class="fa-solid fa-cash-register text-2xl text-amber-500"></i>
+                </div>
+                <h3 class="text-xl font-black uppercase tracking-tight">Open Sales Module</h3>
+                <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-1">Choose Destination</p>
+            </div>
+
+            <div class="space-y-3">
+                <button onclick="openSalesDestination('/sales')" class="w-full bg-amber-500 hover:bg-amber-400 text-slate-900 font-black py-4 rounded-2xl transition-all uppercase text-xs tracking-widest">
+                    Open POS Terminal
+                </button>
+                <button onclick="openSalesDestination('/sales/report')" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-black py-4 rounded-2xl transition-all uppercase text-xs tracking-widest">
+                    Open Invoice Report
+                </button>
+                <button onclick="toggleSalesModal()" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-black py-4 rounded-2xl transition-all uppercase text-xs tracking-widest">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="purchasesModal" onclick="togglePurchasesModal()" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300">
+        <div onclick="event.stopPropagation()" class="bg-slate-800 border border-slate-700 w-full max-w-md p-8 rounded-[2.5rem] shadow-2xl relative">
+            <button onclick="togglePurchasesModal()" class="absolute top-6 right-6 text-slate-500 hover:text-white transition-colors">
+                <i class="fa-solid fa-circle-xmark text-2xl"></i>
+            </button>
+
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <i class="fa-solid fa-truck-ramp-box text-2xl text-indigo-500"></i>
+                </div>
+                <h3 class="text-xl font-black uppercase tracking-tight">Open Purchases Module</h3>
+                <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-1">Choose Destination</p>
+            </div>
+
+            <div class="space-y-3">
+                <button onclick="openPurchasesDestination('/purchases')" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl transition-all uppercase text-xs tracking-widest">
+                    Open Purchasing Terminal
+                </button>
+                <button onclick="openPurchasesDestination('/purchases/report?type=purchase_order')" class="w-full bg-indigo-500/80 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl transition-all uppercase text-xs tracking-widest">
+                    Open Purchase Order Report
+                </button>
+                <button onclick="openPurchasesDestination('/purchases/report?type=purchase_invoice')" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-black py-4 rounded-2xl transition-all uppercase text-xs tracking-widest">
+                    Open Purchase Invoice Report
+                </button>
+                <button onclick="openPurchasesDestination('/purchases/report?type=purchase_receipt')" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-2xl transition-all uppercase text-xs tracking-widest">
+                    Open Purchase Receipt Report
+                </button>
+                <button onclick="togglePurchasesModal()" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-black py-4 rounded-2xl transition-all uppercase text-xs tracking-widest">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div class="max-w-5xl mx-auto w-full relative">
         <div class="text-center mb-16 cursor-pointer group" onclick="toggleModal()">
             <h1 class="text-5xl font-black tracking-tighter text-white uppercase italic transition-transform group-hover:scale-105">
@@ -58,7 +120,7 @@
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <a href="/sales" class="group relative bg-slate-800/50 p-10 rounded-[2rem] border border-slate-700/50 hover:border-amber-500/50 transition-all shadow-2xl backdrop-blur-sm overflow-hidden">
+            <div onclick="toggleSalesModal()" class="group relative bg-slate-800/50 p-10 rounded-[2rem] border border-slate-700/50 hover:border-amber-500/50 transition-all shadow-2xl backdrop-blur-sm overflow-hidden cursor-pointer">
                 <div class="absolute -right-4 -top-4 w-24 h-24 bg-amber-500/5 rounded-full group-hover:scale-150 transition-transform duration-700"></div>
                 <div class="w-16 h-16 bg-amber-500/10 rounded-2xl flex items-center justify-center mb-8 group-hover:bg-amber-500 group-hover:text-slate-900 transition-all duration-300">
                     <i class="fa-solid fa-cash-register text-3xl text-amber-500 group-hover:text-slate-900"></i>
@@ -66,12 +128,9 @@
                 <h2 class="text-2xl font-bold mb-3 tracking-tight">Sales POS</h2>
                 <p class="text-slate-400 text-sm leading-relaxed">Manage restaurant and retail transactions with real-time ERPNext syncing.</p>
                 <div class="mt-6 flex items-center text-amber-500 text-xs font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
-                    Open Terminal <i class="fa-solid fa-arrow-right ml-2"></i>
+                    Choose Destination <i class="fa-solid fa-arrow-right ml-2"></i>
                 </div>
-                <div class="mt-2">
-                    <a href="/sales/report" class="text-cyan-400 text-[11px] font-bold uppercase tracking-wider hover:text-cyan-300">Open Invoice Report</a>
-                </div>
-            </a>
+            </div>
 
             <a href="/inventory" class="group relative bg-slate-800/50 p-10 rounded-[2rem] border border-slate-200/5 hover:border-emerald-500/50 transition-all shadow-2xl backdrop-blur-sm overflow-hidden">
                 <div class="absolute -right-4 -top-4 w-24 h-24 bg-emerald-500/5 rounded-full group-hover:scale-150 transition-transform duration-700"></div>
@@ -85,7 +144,7 @@
                 </div>
             </a>
 
-            <a href="/purchases" class="group relative bg-slate-800/50 p-10 rounded-[2rem] border border-slate-700/50 hover:border-indigo-500/50 transition-all shadow-2xl backdrop-blur-sm overflow-hidden">
+            <div onclick="togglePurchasesModal()" class="group relative bg-slate-800/50 p-10 rounded-[2rem] border border-slate-700/50 hover:border-indigo-500/50 transition-all shadow-2xl backdrop-blur-sm overflow-hidden cursor-pointer">
                 <div class="absolute -right-4 -top-4 w-24 h-24 bg-indigo-500/5 rounded-full group-hover:scale-150 transition-transform duration-700"></div>
                 <div class="w-16 h-16 bg-indigo-500/10 rounded-2xl flex items-center justify-center mb-8 group-hover:bg-indigo-500 group-hover:text-slate-900 transition-all duration-300">
                     <i class="fa-solid fa-truck-ramp-box text-3xl text-indigo-500 group-hover:text-slate-900"></i>
@@ -93,9 +152,9 @@
                 <h2 class="text-2xl font-bold mb-3 tracking-tight">Purchasing</h2>
                 <p class="text-slate-400 text-sm leading-relaxed">Generate POs for suppliers and track incoming material shipments.</p>
                 <div class="mt-6 flex items-center text-indigo-500 text-xs font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
-                    Procurement <i class="fa-solid fa-arrow-right ml-2"></i>
+                    Choose Destination <i class="fa-solid fa-arrow-right ml-2"></i>
                 </div>
-            </a>
+            </div>
         </div>
 
         <div class="mt-20 pt-10 border-t border-slate-800/50 flex flex-col md:flex-row justify-between items-center gap-4">
@@ -120,6 +179,26 @@
             const modal = document.getElementById('infoModal');
             modal.classList.toggle('opacity-0');
             modal.classList.toggle('pointer-events-none');
+        }
+
+        function toggleSalesModal() {
+            const modal = document.getElementById('salesModal');
+            modal.classList.toggle('opacity-0');
+            modal.classList.toggle('pointer-events-none');
+        }
+
+        function openSalesDestination(path) {
+            window.location.href = path;
+        }
+
+        function togglePurchasesModal() {
+            const modal = document.getElementById('purchasesModal');
+            modal.classList.toggle('opacity-0');
+            modal.classList.toggle('pointer-events-none');
+        }
+
+        function openPurchasesDestination(path) {
+            window.location.href = path;
         }
 
         // Uptime Counter

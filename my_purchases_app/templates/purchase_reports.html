@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMBITS - Purchase Reports</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-slate-100 min-h-screen p-4 sm:p-8" onload="initReport()">
+    <div class="max-w-7xl mx-auto space-y-6">
+        <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex justify-between items-center border-b-4 border-indigo-500">
+            <div class="flex items-center gap-4">
+                <a href="/" class="bg-white/10 hover:bg-white/20 w-10 h-10 flex items-center justify-center rounded-xl transition-all">
+                    <i class="fa-solid fa-house text-white"></i>
+                </a>
+                <div>
+                    <h1 class="text-xl font-black uppercase tracking-tight">Purchase Reports</h1>
+                    <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest">PO / PI / PR Monitoring</p>
+                </div>
+            </div>
+            <a href="/purchases" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-lg text-xs font-bold transition-all">
+                Back To Purchasing
+            </a>
+        </div>
+
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-3">
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Report Type</label>
+                <select id="report_type" class="w-full border border-slate-200 rounded-lg p-2 text-sm" onchange="onReportTypeChange()">
+                    <option value="purchase_order">Purchase Order</option>
+                    <option value="purchase_invoice">Purchase Invoice</option>
+                    <option value="purchase_receipt">Purchase Receipt</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">From Date</label>
+                <input type="date" id="from_date" class="w-full border border-slate-200 rounded-lg p-2 text-sm">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">To Date</label>
+                <input type="date" id="to_date" class="w-full border border-slate-200 rounded-lg p-2 text-sm">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Company</label>
+                <select id="company" class="w-full border border-slate-200 rounded-lg p-2 text-sm">
+                    <option value="">All Companies</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Supplier</label>
+                <select id="supplier" class="w-full border border-slate-200 rounded-lg p-2 text-sm">
+                    <option value="">All Suppliers</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label>
+                <select id="status" class="w-full border border-slate-200 rounded-lg p-2 text-sm">
+                    <option value="all">All</option>
+                </select>
+            </div>
+            <div class="flex items-end">
+                <button onclick="loadReport()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 rounded-lg text-sm">
+                    Apply Filters
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-[10px] uppercase font-bold text-slate-400">Document Count</p>
+                <p id="sum-count" class="text-2xl font-black text-slate-700">0</p>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-[10px] uppercase font-bold text-slate-400">Total Amount</p>
+                <p id="sum-amount" class="text-2xl font-black text-indigo-700">₱0.00</p>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-[10px] uppercase font-bold text-slate-400">Total Paid</p>
+                <p id="sum-paid" class="text-2xl font-black text-emerald-700">₱0.00</p>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-[10px] uppercase font-bold text-slate-400">Outstanding</p>
+                <p id="sum-outstanding" class="text-2xl font-black text-rose-700">₱0.00</p>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-50 border-b border-slate-100">
+                        <tr class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            <th class="px-5 py-4">Document</th>
+                            <th class="px-5 py-4">Date</th>
+                            <th class="px-5 py-4">Supplier</th>
+                            <th class="px-5 py-4">Company</th>
+                            <th class="px-5 py-4 text-right">Total</th>
+                            <th class="px-5 py-4 text-right">Paid</th>
+                            <th class="px-5 py-4 text-right">Outstanding</th>
+                            <th class="px-5 py-4 text-center">Status</th>
+                            <th class="px-5 py-4 text-center">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="report-body" class="divide-y divide-slate-50"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function peso(v) {
+            return `₱${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+
+        function getQueryParam(key) {
+            const params = new URLSearchParams(window.location.search);
+            return params.get(key);
+        }
+
+        function getStatusOptionsByType(type) {
+            if (type === 'purchase_order') {
+                return ['all', 'To Receive and Bill', 'To Receive', 'To Bill', 'Completed', 'Cancelled', 'Draft'];
+            }
+            if (type === 'purchase_invoice') {
+                return ['all', 'Unpaid', 'Partly Paid', 'Paid', 'Overdue', 'Cancelled', 'Draft'];
+            }
+            if (type === 'purchase_receipt') {
+                return ['all', 'To Bill', 'Completed', 'Cancelled', 'Draft'];
+            }
+            return ['all'];
+        }
+
+        function renderStatusOptions(type, selected = 'all') {
+            const options = getStatusOptionsByType(type);
+            const statusEl = document.getElementById('status');
+            statusEl.innerHTML = options.map(v => {
+                const label = v === 'all' ? 'All' : v;
+                const sel = v === selected ? 'selected' : '';
+                return `<option value="${v}" ${sel}>${label}</option>`;
+            }).join('');
+        }
+
+        function onReportTypeChange() {
+            const type = document.getElementById('report_type').value;
+            renderStatusOptions(type, 'all');
+            loadReport();
+        }
+
+        async function initReport() {
+            // Default to all-time view so existing PI/PR records are not hidden.
+            document.getElementById('from_date').value = '';
+            document.getElementById('to_date').value = '';
+
+            const typeFromQuery = getQueryParam('type');
+            if (typeFromQuery && ['purchase_order', 'purchase_invoice', 'purchase_receipt'].includes(typeFromQuery)) {
+                document.getElementById('report_type').value = typeFromQuery;
+            }
+            renderStatusOptions(document.getElementById('report_type').value, 'all');
+
+            try {
+                const res = await fetch('/purchases/api/report_metadata');
+                const data = await res.json();
+
+                document.getElementById('company').innerHTML = '<option value="">All Companies</option>' +
+                    (data.companies || []).map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+
+                document.getElementById('supplier').innerHTML = '<option value="">All Suppliers</option>' +
+                    (data.suppliers || []).map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+            } catch (e) {
+                console.error('Report metadata failed:', e);
+            }
+
+            loadReport();
+        }
+
+        async function loadReport() {
+            const qs = new URLSearchParams({
+                report_type: document.getElementById('report_type').value,
+                from_date: document.getElementById('from_date').value,
+                to_date: document.getElementById('to_date').value,
+                company: document.getElementById('company').value,
+                supplier: document.getElementById('supplier').value,
+                status: document.getElementById('status').value,
+                start: '0',
+                page_length: '500'
+            });
+
+            try {
+                const res = await fetch(`/purchases/api/report?${qs.toString()}`);
+                const data = await res.json();
+                const rows = data.rows || [];
+                const sum = data.summary || {};
+                const body = document.getElementById('report-body');
+
+                document.getElementById('sum-count').innerText = Number(sum.count || 0).toLocaleString();
+                document.getElementById('sum-amount').innerText = peso(sum.total_amount || 0);
+                document.getElementById('sum-paid').innerText = peso(sum.total_paid || 0);
+                document.getElementById('sum-outstanding').innerText = peso(sum.total_outstanding || 0);
+
+                if (!rows.length) {
+                    body.innerHTML = '<tr><td colspan="9" class="p-10 text-center text-slate-400 italic">No records found for selected filters.</td></tr>';
+                    return;
+                }
+
+                body.innerHTML = rows.map(row => {
+                    const reportType = document.getElementById('report_type').value;
+                    const docstatus = Number(row.docstatus || 0);
+                    const erpStatus = row.status || (docstatus === 1 ? 'Submitted' : (docstatus === 2 ? 'Cancelled' : 'Draft'));
+                    const s = String(erpStatus).toLowerCase();
+                    const statusClass = s.includes('cancel')
+                        ? 'bg-rose-100 text-rose-700'
+                        : (s.includes('paid') || s.includes('complete') || s.includes('receive'))
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-amber-100 text-amber-700';
+                    const total = Number(row.rounded_total || row.grand_total || 0);
+                    const paid = Number(row.paid_amount || 0);
+                    const outstanding = Number(row.outstanding_amount || 0);
+                    const actionHtml = getActionButtonsHtml(reportType, row.name, docstatus);
+
+                    return `
+                        <tr class="hover:bg-slate-50">
+                            <td class="px-5 py-4 font-bold text-slate-700">${row.name || '-'}</td>
+                            <td class="px-5 py-4 text-sm text-slate-600">${row.document_date || '-'}</td>
+                            <td class="px-5 py-4 text-sm text-slate-700">${row.supplier || '-'}</td>
+                            <td class="px-5 py-4 text-sm text-slate-600">${row.company || '-'}</td>
+                            <td class="px-5 py-4 text-right font-mono text-slate-800">${peso(total)}</td>
+                            <td class="px-5 py-4 text-right font-mono text-emerald-700">${peso(paid)}</td>
+                            <td class="px-5 py-4 text-right font-mono text-rose-700">${peso(outstanding)}</td>
+                            <td class="px-5 py-4 text-center">
+                                <span class="px-2 py-1 rounded-full text-xs font-bold ${statusClass}">${erpStatus}</span>
+                            </td>
+                            <td class="px-5 py-4 text-center">${actionHtml}</td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (e) {
+                console.error('Report load failed:', e);
+            }
+        }
+
+        function getActionButtonsHtml(reportType, sourceName, docstatus) {
+            if (Number(docstatus || 0) !== 1) return '<span class="text-xs text-slate-400">Submitted only</span>';
+            if (reportType === 'purchase_order') {
+                return `
+                    <div class="flex items-center justify-center gap-2">
+                        <button onclick="convertDoc('purchase_order','purchase_invoice','${sourceName}')" class="px-2 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-bold">To PI</button>
+                        <button onclick="convertDoc('purchase_order','purchase_receipt','${sourceName}')" class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold">To PR</button>
+                    </div>
+                `;
+            }
+            if (reportType === 'purchase_invoice') {
+                return `<button onclick="convertDoc('purchase_invoice','purchase_receipt','${sourceName}')" class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold">To PR</button>`;
+            }
+            if (reportType === 'purchase_receipt') {
+                return `<button onclick="convertDoc('purchase_receipt','purchase_invoice','${sourceName}')" class="px-2 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-bold">To PI</button>`;
+            }
+            return '-';
+        }
+
+        async function convertDoc(sourceType, targetType, sourceName) {
+            const ok = confirm(`Create ${targetType.replace('_', ' ')} from ${sourceName}?`);
+            if (!ok) return;
+
+            try {
+                const res = await fetch('/purchases/api/convert', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        source_type: sourceType,
+                        target_type: targetType,
+                        source_name: sourceName
+                    })
+                });
+                const result = await res.json();
+                if (!res.ok) {
+                    alert(result.message || 'Conversion failed.');
+                    return;
+                }
+                alert(result.message || 'Conversion successful.');
+                loadReport();
+            } catch (e) {
+                alert(`Conversion error: ${e.message}`);
+            }
+        }
+    </script>
+</body>
+</html>
