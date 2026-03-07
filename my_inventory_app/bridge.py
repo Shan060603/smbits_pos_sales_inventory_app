@@ -15,191 +15,207 @@ inventory_bp = Blueprint(
 
 
 # ----------------------------------------------------
-# ERP INVENTORY BRIDGE
+# ERP INVENTORY BRIDGE USING STOCK BALANCE REPORT
 # ----------------------------------------------------
-
 class SMBITSInventoryBridge:
 
     def __init__(self):
-
         self.url = (os.getenv("ERPNEXT_URL") or "").rstrip("/")
         self.api_key = os.getenv("API_KEY")
         self.api_secret = os.getenv("API_SECRET")
 
-        # Persistent session (faster than raw requests)
         self.session = requests.Session()
-
-        # IMPORTANT: update headers instead of replacing them
         self.session.headers.update({
             "Authorization": f"token {self.api_key}:{self.api_secret}",
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "Expect": ""   # prevents ERPNext 417 error
+            "Expect": None  # disables 417 error reliably
         })
 
-    # ----------------------------------------------------
+        # Optional: retry for transient network issues
+        adapter = requests.adapters.HTTPAdapter(max_retries=3)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+
+    # -------------------------------
     # GENERIC RESOURCE FETCH
-    # ----------------------------------------------------
-
-    def get_resource_list(self, doctype, filters=None, fields=None):
-
+    # -------------------------------
+    def get_resource_list(self, doctype, filters=None, fields=None, start=0, page_length=200):
+        """
+        Fetches resource from ERPNext in paginated batches to avoid 417 errors.
+        """
         endpoint = f"{self.url}/api/resource/{doctype}"
-
-        params = {
-            "limit_page_length": 200
-        }
-
+        params = {"limit_page_length": page_length, "limit_start": start}
         if fields:
             params["fields"] = json.dumps(fields)
-
         if filters:
             params["filters"] = json.dumps(filters)
 
         try:
-
-            response = self.session.get(
-                endpoint,
-                params=params,
-                timeout=20
-            )
-
-            response.raise_for_status()
-
-            data = response.json()
-
-            return data.get("data", [])
-
+            res = self.session.get(endpoint, params=params, timeout=20, stream=True)
+            res.raise_for_status()
+            return res.json().get("data", [])
         except Exception as e:
-
             print(f"❌ SMBITS Fetch Error [{doctype}]: {e}")
-
             return []
 
-    # ----------------------------------------------------
-    # INVENTORY REPORT
-    # ----------------------------------------------------
+    # -------------------------------
+    # FULL STOCK REPORT
+    # -------------------------------
+    @staticmethod
+    def _extract_report_rows(response_json):
+        """
+        ERPNext query reports usually return:
+        - {"message": {"result": [...], "columns": [...]}}
+        - {"message": [...]} (legacy/custom)
+        Normalize all supported variants into a list of dict rows.
+        """
+        message = response_json.get("message")
+        parsed = False
+        if isinstance(message, dict):
+            parsed = True
+            rows = message.get("result") or []
+            columns = message.get("columns") or []
+        elif isinstance(message, list):
+            parsed = True
+            rows = message
+            columns = []
+        else:
+            return [], parsed
 
-    def get_full_stock_report(self, company=None, start=0, page_length=20):
+        if not rows:
+            return [], parsed
 
+        if isinstance(rows[0], dict):
+            return rows, parsed
+
+        # Some reports return list rows; map them using column names.
+        if isinstance(rows[0], list) and columns:
+            column_names = []
+            for col in columns:
+                if isinstance(col, dict):
+                    column_names.append(col.get("fieldname") or col.get("label"))
+                else:
+                    column_names.append(str(col))
+
+            mapped_rows = []
+            for row in rows:
+                if not isinstance(row, list):
+                    continue
+                mapped_rows.append({
+                    column_names[i]: row[i] if i < len(row) else None
+                    for i in range(len(column_names))
+                    if column_names[i]
+                })
+            return mapped_rows, parsed
+
+        return [], parsed
+
+    @staticmethod
+    def _first_value(row, keys, default=None):
+        for key in keys:
+            if key in row and row.get(key) not in (None, ""):
+                return row.get(key)
+        return default
+
+    def _format_rows_for_ui(self, rows):
+        formatted = []
+        for row in rows:
+            item_code = self._first_value(row, ["item_code", "item"])
+            item_name = self._first_value(row, ["item_name", "item_code", "item"], item_code)
+            warehouse = self._first_value(row, ["warehouse"])
+            qty = self._first_value(row, ["bal_qty", "actual_qty", "qty"], 0)
+            valuation_rate = self._first_value(row, ["valuation_rate", "incoming_rate", "basic_rate"], 0)
+
+            formatted.append({
+                "item_code": item_code,
+                "item_name": item_name,
+                "warehouse": warehouse,
+                "actual_qty": qty or 0,
+                "valuation_rate": valuation_rate or 0,
+                "selling_price": valuation_rate or 0
+            })
+        return formatted
+
+    def _get_stock_from_bin(self, company=None, warehouse=None, start=0, page_length=200):
+        """
+        Fallback path when Stock Balance report returns no rows.
+        Uses Bin records and company-scoped warehouses.
+        """
+        wh_filters = [["company", "=", company]] if company else []
+        warehouses = self.get_resource_list(
+            "Warehouse",
+            filters=wh_filters,
+            fields=["name"],
+            start=0,
+            page_length=2000
+        )
+        allowed_wh = [w.get("name") for w in warehouses if w.get("name")]
+        if warehouse:
+            allowed_wh = [w for w in allowed_wh if w == warehouse]
+        if not allowed_wh:
+            return []
+
+        bin_filters = [["warehouse", "in", allowed_wh]]
+        bins = self.get_resource_list(
+            "Bin",
+            filters=bin_filters,
+            fields=["item_code", "warehouse", "actual_qty", "valuation_rate"],
+            start=0,
+            page_length=2000
+        )
+
+        # Remove pure-zero rows so UI isn't filled with noise.
+        bins = [b for b in bins if (b.get("actual_qty") or 0) != 0]
+        paged = bins[start:start + page_length]
+        return self._format_rows_for_ui(paged)
+
+    def get_full_stock_report(self, company=None, warehouse=None, start=0, page_length=200):
+        """
+        Fetch all Stock Balance data safely with pagination, avoids 417.
+        """
         try:
+            filters = {"company": company or ""}
+            if warehouse:
+                filters["warehouse"] = warehouse
 
-            # 1️⃣ Fetch warehouses
-            wh_filters = [["company", "=", company]] if company else []
+            report_endpoint = f"{self.url}/api/method/frappe.desk.query_report.run"
+            payload = {"report_name": "Stock Balance", "filters": filters}
 
-            warehouses = self.get_resource_list(
-                "Warehouse",
-                filters=wh_filters,
-                fields=["name"]
-            )
+            res = self.session.post(report_endpoint, json=payload, timeout=30)
+            res.raise_for_status()
 
-            allowed_whs = {w["name"] for w in warehouses}
-
-            if not allowed_whs:
+            data, parsed = self._extract_report_rows(res.json())
+            if not parsed:
+                print(f"❌ SMBITS Full Stock Fetch Error: Unexpected response format")
                 return []
 
-            # 2️⃣ Fetch Bins
-            bin_endpoint = f"{self.url}/api/resource/Bin"
-
-            bin_params = {
-                "fields": json.dumps([
-                    "item_code",
-                    "item_name",
-                    "warehouse",
-                    "actual_qty",
-                    "valuation_rate"
-                ]),
-                "limit_page_length": 200,
-                "limit_start": start
-            }
-
-            bin_res = self.session.get(
-                bin_endpoint,
-                params=bin_params,
-                timeout=25
-            )
-
-            bin_res.raise_for_status()
-
-            all_bins = bin_res.json().get("data", [])
-
-            # 3️⃣ Filter warehouses locally
-            filtered_bins = [
-                b for b in all_bins
-                if b.get("warehouse") in allowed_whs
-            ]
-
-            paged_bins = filtered_bins[:page_length]
-
-            # 4️⃣ Fetch selling prices
-            if paged_bins:
-
-                item_codes = [
-                    b["item_code"]
-                    for b in paged_bins
-                    if b.get("item_code")
-                ]
-
-                price_endpoint = f"{self.url}/api/resource/Item Price"
-
-                price_params = {
-                    "fields": json.dumps([
-                        "item_code",
-                        "price_list_rate"
-                    ]),
-                    "filters": json.dumps([
-                        ["item_code", "in", item_codes],
-                        ["price_list", "=", "Standard Selling"]
-                    ])
-                }
-
-                price_res = self.session.get(
-                    price_endpoint,
-                    params=price_params,
-                    timeout=20
+            if not data:
+                fallback_data = self._get_stock_from_bin(
+                    company=company,
+                    warehouse=warehouse,
+                    start=start,
+                    page_length=page_length
                 )
+                print(f"ℹ️ SMBITS Stock Balance rows=0, Bin fallback rows={len(fallback_data)}")
+                return fallback_data
 
-                prices = {
-                    p["item_code"]: p["price_list_rate"]
-                    for p in price_res.json().get("data", [])
-                }
-
-                for b in paged_bins:
-
-                    b["selling_price"] = prices.get(
-                        b.get("item_code"), 0
-                    )
-
-                    b["actual_qty"] = b.get("actual_qty", 0)
-
-                    b["valuation_rate"] = b.get("valuation_rate", 0)
-
-                    b["item_name"] = b.get(
-                        "item_name",
-                        b.get("item_code", "Unknown")
-                    )
-
-            return paged_bins
+            # Slice for front-end pagination and normalize keys.
+            paged_data = data[start:start + page_length]
+            return self._format_rows_for_ui(paged_data)
 
         except Exception as e:
-
-            print(f"❌ SMBITS Master Report Error: {e}")
-
+            print(f"❌ SMBITS Full Stock Fetch Error: {e}")
             return []
 
-    # ----------------------------------------------------
-    # STOCK ENTRY CREATION
-    # ----------------------------------------------------
-
-    def create_stock_entry(
-        self,
-        item_code,
-        warehouse,
-        qty,
-        purpose="Material Receipt"
-    ):
-
+    # -------------------------------
+    # CREATE STOCK ENTRY
+    # -------------------------------
+    def create_stock_entry(self, item_code, warehouse, qty, purpose="Material Receipt"):
+        """
+        Creates a Stock Entry in ERPNext safely.
+        """
         endpoint = f"{self.url}/api/resource/Stock Entry"
-
         payload = {
             "stock_entry_type": purpose,
             "items": [{
@@ -210,54 +226,37 @@ class SMBITSInventoryBridge:
                 "uom": "Nos"
             }]
         }
-
         try:
-
-            response = self.session.post(
-                endpoint,
-                json=payload,
-                timeout=25
-            )
-
-            if response.status_code in (200, 201):
-
-                return response.json()
-
-            return {"error": response.text}
-
+            res = self.session.post(endpoint, json=payload, timeout=25)
+            res.raise_for_status()
+            return res.json()
         except Exception as e:
-
             return {"error": str(e)}
 
 
 # ----------------------------------------------------
 # INITIALIZE ENGINE
 # ----------------------------------------------------
-
 inventory_engine = SMBITSInventoryBridge()
 
 
 # ----------------------------------------------------
 # ROUTES
 # ----------------------------------------------------
-
 @inventory_bp.route("/")
 def inventory_home():
-
     return render_template("inventory_index.html")
 
 
 @inventory_bp.route("/api/metadata", methods=["GET"])
 def get_metadata():
-
     company = request.args.get("company")
-
     wh_filters = [["company", "=", company]] if company else []
 
     warehouses = inventory_engine.get_resource_list(
         "Warehouse",
         filters=wh_filters,
-        fields=["name"]
+        fields=["name", "company"]
     )
 
     companies = inventory_engine.get_resource_list(
@@ -273,13 +272,13 @@ def get_metadata():
 
 @inventory_bp.route("/api/stock_report", methods=["GET"])
 def stock_report():
-
     company = request.args.get("company")
-
+    warehouse = request.args.get("warehouse")
     start = request.args.get("start", 0, type=int)
 
     data = inventory_engine.get_full_stock_report(
-        company,
+        company=company,
+        warehouse=warehouse,
         start=start,
         page_length=20
     )
@@ -289,14 +288,11 @@ def stock_report():
 
 @inventory_bp.route("/api/stock_entry", methods=["POST"])
 def adjust_stock():
-
     data = request.json or {}
-
     result = inventory_engine.create_stock_entry(
         item_code=data.get("item_code"),
         warehouse=data.get("warehouse"),
         qty=data.get("qty"),
         purpose=data.get("purpose", "Material Receipt")
     )
-
     return jsonify(result)

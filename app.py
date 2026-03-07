@@ -1,6 +1,6 @@
 import os
 import socket
-from flask import Flask, render_template
+from flask import Flask, render_template, Response
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -42,6 +42,12 @@ def dashboard():
 def health():
     """Health check endpoint for monitoring."""
     return {"status": "ok", "service": "smbits-erp-portal"}
+
+
+@app.route("/favicon.ico")
+def favicon():
+    """Avoid repeated 404 noise when no favicon asset is configured."""
+    return Response(status=204)
 
 
 if __name__ == "__main__":
