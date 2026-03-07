@@ -107,6 +107,14 @@
     </div>
 
     <div class="max-w-5xl mx-auto w-full relative">
+        <div class="absolute right-0 top-0 z-40 flex items-center gap-3">
+            <span class="text-[10px] uppercase tracking-widest text-slate-400 font-black">{{ session.get('erp_user', 'ERP User') }}</span>
+            <form method="POST" action="/logout">
+                <button type="submit" class="px-3 py-2 rounded-lg border border-slate-600 text-slate-200 hover:bg-slate-800 text-[10px] font-black uppercase tracking-widest transition">
+                    Logout
+                </button>
+            </form>
+        </div>
         <div class="text-center mb-16 cursor-pointer group" onclick="toggleModal()">
             <h1 class="text-5xl font-black tracking-tighter text-white uppercase italic transition-transform group-hover:scale-105">
                 SMB<span class="text-amber-500 not-italic">ITS</span>
@@ -221,6 +229,10 @@
             } catch(e) {}
         }
         fetchIP();
+    </script>
+    <script src="/static/idle-timeout.js"></script>
+    <script>
+        initInactivityLogout(30);
     </script>
 </body>
 </html>

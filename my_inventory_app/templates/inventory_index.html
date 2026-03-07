@@ -16,9 +16,6 @@
   <!-- HEADER -->
   <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex justify-between items-center border-b-4 border-emerald-500">
     <div class="flex items-center gap-4">
-      <a href="/" class="bg-white/10 hover:bg-white/20 w-10 h-10 flex items-center justify-center rounded-xl">
-        <i class="fa-solid fa-house"></i>
-      </a>
       <div>
         <h1 class="text-xl font-black uppercase tracking-tight">
             <span class="text-emerald-500">SMBITS</span> Master Stock
@@ -29,10 +26,22 @@
       </div>
     </div>
 
-    <button onclick="refreshData()"
-      class="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2">
-      <i class="fa-solid fa-sync"></i> Refresh Data
-    </button>
+    <div class="flex items-center gap-2">
+      <a href="/"
+        class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
+        Home
+      </a>
+      <button onclick="refreshData()"
+        class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-all flex items-center gap-2">
+        <i class="fa-solid fa-sync"></i> Refresh Data
+      </button>
+      <form method="POST" action="/logout">
+        <button type="submit"
+          class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-all">
+          Logout
+        </button>
+      </form>
+    </div>
   </div>
 
   <!-- FILTERS -->
@@ -382,6 +391,10 @@ async function saveRowRates(encodedItemCode, buyInputId, sellInputId, btnEl) {
     sellInput.disabled = false
   }
 }
+</script>
+<script src="/static/idle-timeout.js"></script>
+<script>
+initInactivityLogout(30)
 </script>
 
 </body>

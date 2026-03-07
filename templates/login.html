@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMBITS - ERPNext Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center p-4">
+    <div class="w-full max-w-md bg-slate-800/80 border border-slate-700 rounded-3xl p-8 shadow-2xl">
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-black tracking-tight italic">
+                SMB<span class="text-amber-500 not-italic">ITS</span>
+            </h1>
+            <p class="text-xs uppercase tracking-[0.28em] text-slate-400 mt-2">ERP Portal Access</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="mb-4 px-4 py-3 rounded-xl text-sm font-semibold {{ 'bg-red-500/20 text-red-300 border border-red-500/40' if category == 'error' else 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' }}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="/login" class="space-y-4">
+            <input type="hidden" name="next" value="{{ next_url or '/' }}">
+            <div>
+                <label class="block text-[11px] uppercase tracking-widest font-bold text-slate-400 mb-1">ERPNext User</label>
+                <div class="flex items-center gap-2 bg-slate-900/70 border border-slate-700 rounded-xl px-3">
+                    <i class="fa-solid fa-user text-slate-500 text-sm"></i>
+                    <input
+                        name="username"
+                        type="text"
+                        autocomplete="username"
+                        class="w-full bg-transparent py-3 outline-none text-slate-100"
+                        placeholder="you@company.com"
+                        required
+                    >
+                </div>
+            </div>
+            <div>
+                <label class="block text-[11px] uppercase tracking-widest font-bold text-slate-400 mb-1">Password</label>
+                <div class="flex items-center gap-2 bg-slate-900/70 border border-slate-700 rounded-xl px-3">
+                    <i class="fa-solid fa-lock text-slate-500 text-sm"></i>
+                    <input
+                        name="password"
+                        type="password"
+                        autocomplete="current-password"
+                        class="w-full bg-transparent py-3 outline-none text-slate-100"
+                        placeholder="Enter password"
+                        required
+                    >
+                </div>
+            </div>
+            <button type="submit" class="w-full bg-amber-500 hover:bg-amber-400 text-slate-900 font-black uppercase tracking-widest text-xs py-3 rounded-xl transition">
+                Sign In
+            </button>
+        </form>
+    </div>
+</body>
+</html>
