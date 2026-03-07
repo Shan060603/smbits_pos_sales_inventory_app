@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SMBITS - Stock Report</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+</head>
+
+<body class="bg-slate-100 min-h-screen p-4 sm:p-8" onload="initReport()">
+
+<div class="max-w-7xl mx-auto space-y-6">
+
+<!-- HEADER -->
+<div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex justify-between items-center border-b-4 border-emerald-500">
+
+<div class="flex items-center gap-4">
+
+<a href="/" class="bg-white/10 hover:bg-white/20 w-10 h-10 flex items-center justify-center rounded-xl">
+<i class="fa-solid fa-house"></i>
+</a>
+
+<div>
+<h1 class="text-xl font-black uppercase tracking-tight">
+SMB <span class="text-emerald-500">ITS</span> Master Stock
+</h1>
+
+<p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest">
+Enterprise Inventory Report
+</p>
+</div>
+
+</div>
+
+<button onclick="fetchFullReport(0)"
+class="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2">
+
+<i class="fa-solid fa-sync"></i> Refresh Data
+</button>
+
+</div>
+
+
+<!-- FILTERS -->
+<div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-4 gap-4">
+
+<div>
+<label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Company</label>
+
+<select id="filter-company"
+onchange="companyChanged()"
+class="w-full border border-slate-200 rounded-lg p-2 text-sm bg-slate-50 font-bold text-slate-700">
+</select>
+
+</div>
+
+<div>
+<label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+
+<select id="filter-warehouse"
+onchange="renderTable()"
+class="w-full border border-slate-200 rounded-lg p-2 text-sm bg-slate-50 text-slate-700">
+
+<option value="">All Warehouses</option>
+
+</select>
+</div>
+
+<div>
+<label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Sort By</label>
+
+<select id="sort-by"
+onchange="renderTable()"
+class="w-full border border-slate-200 rounded-lg p-2 text-sm bg-slate-50 text-slate-700">
+
+<option value="item_name">Name (A-Z)</option>
+<option value="actual_qty">Stock Level (Low to High)</option>
+<option value="valuation_rate">Valuation (Buying Price)</option>
+
+</select>
+</div>
+
+<div>
+
+<label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Search Items</label>
+
+<input
+type="text"
+id="search-box"
+oninput="renderTable()"
+placeholder="Type SKU or Name..."
+class="w-full border border-slate-200 rounded-lg p-2 text-sm bg-slate-50 focus:border-emerald-500 outline-none"
+/>
+
+</div>
+
+</div>
+
+
+<!-- TABLE -->
+<div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+
+<div class="overflow-x-auto">
+
+<table class="w-full text-left">
+
+<thead class="bg-slate-50 border-b border-slate-100">
+
+<tr class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+
+<th class="px-6 py-4">Item Details</th>
+<th class="px-6 py-4">Warehouse</th>
+<th class="px-6 py-4 text-center">Stock Qty</th>
+<th class="px-6 py-4 text-right">Buying Rate</th>
+<th class="px-6 py-4 text-right">Selling Rate</th>
+
+</tr>
+
+</thead>
+
+<tbody id="report-body" class="divide-y divide-slate-50"></tbody>
+
+</table>
+
+</div>
+
+
+<!-- PAGINATION -->
+<div class="p-4 bg-slate-50 border-t flex justify-between items-center">
+
+<button
+id="prev-btn"
+onclick="fetchFullReport(-1)"
+class="px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold shadow-sm hover:bg-slate-100 text-slate-600">
+
+<i class="fa-solid fa-chevron-left mr-2"></i> Previous
+</button>
+
+<div id="page-display"
+class="text-[10px] text-slate-400 font-black uppercase tracking-widest">
+
+Showing Items
+<span id="range-start">0</span>
+-
+<span id="range-end">0</span>
+
+</div>
+
+<button
+onclick="fetchFullReport(1)"
+class="px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold shadow-sm hover:bg-slate-100 text-slate-600">
+
+Next <i class="fa-solid fa-chevron-right ml-2"></i>
+
+</button>
+
+</div>
+
+
+<div id="loading-overlay"
+class="hidden p-12 text-center text-slate-400 italic">
+
+<i class="fa-solid fa-spinner animate-spin mr-2"></i>
+Syncing with ERPNext...
+
+</div>
+
+</div>
+
+</div>
+
+
+<script>
+
+let fullStockData = []
+let allWarehouses = []
+let currentStart = 0
+const pageSize = 20
+
+
+async function initReport() {
+
+try {
+
+const res = await fetch('/inventory/api/metadata')
+const data = await res.json()
+
+allWarehouses = data.warehouses || []
+
+const compSelect = document.getElementById('filter-company')
+
+compSelect.innerHTML =
+data.companies.map(c => `<option value="${c}">${c}</option>`).join('')
+
+/* AUTO SELECT FIRST COMPANY */
+compSelect.selectedIndex = 0
+
+companyChanged()
+
+} catch(e) {
+
+console.error("Init Error:", e)
+
+}
+
+}
+
+
+function companyChanged(){
+
+currentStart = 0
+
+updateWarehouseFilter()
+
+fetchFullReport(0)
+
+}
+
+
+function updateWarehouseFilter(){
+
+const company = document.getElementById('filter-company').value
+const whSelect = document.getElementById('filter-warehouse')
+
+const filtered = allWarehouses.filter(w => w.company === company)
+
+whSelect.innerHTML =
+'<option value="">All Warehouses</option>' +
+filtered.map(w => `<option value="${w.name}">${w.name}</option>`).join('')
+
+}
+
+
+async function fetchFullReport(direction=0){
+
+const overlay = document.getElementById('loading-overlay')
+overlay.classList.remove('hidden')
+
+if(direction === 1) currentStart += pageSize
+if(direction === -1) currentStart = Math.max(0,currentStart-pageSize)
+if(direction === 0) currentStart = 0
+
+const company = document.getElementById('filter-company').value
+
+try{
+
+const res = await fetch(`/inventory/api/stock_report?company=${encodeURIComponent(company)}&start=${currentStart}`)
+
+const data = await res.json()
+
+if(data.length===0 && direction===1){
+
+currentStart -= pageSize
+alert("No more records found.")
+return
+
+}
+
+fullStockData = data || []
+
+renderTable()
+
+updatePaginationUI(data.length)
+
+}catch(e){
+
+console.error("Fetch Error:",e)
+
+}finally{
+
+overlay.classList.add('hidden')
+
+}
+
+}
+
+
+function updatePaginationUI(count){
+
+document.getElementById('range-start').innerText = currentStart+1
+document.getElementById('range-end').innerText = currentStart+count
+
+document.getElementById('prev-btn').disabled = currentStart===0
+
+}
+
+
+function renderTable(){
+
+const wh = document.getElementById('filter-warehouse').value
+const sort = document.getElementById('sort-by').value
+const search = document.getElementById('search-box').value.toLowerCase()
+
+const body = document.getElementById('report-body')
+
+let filtered = fullStockData.filter(item => {
+
+const itemName = (item.item_name || "").toLowerCase()
+const itemCode = (item.item_code || "").toLowerCase()
+
+const matchesWh = wh==="" || item.warehouse===wh
+const matchesSearch = itemName.includes(search) || itemCode.includes(search)
+
+return matchesWh && matchesSearch
+
+})
+
+
+filtered.sort((a,b)=>{
+
+if(sort==="actual_qty"||sort==="valuation_rate")
+return (a[sort]||0)-(b[sort]||0)
+
+return (a[sort]||"").localeCompare(b[sort]||"")
+
+})
+
+
+if(filtered.length===0){
+
+body.innerHTML=
+`<tr>
+<td colspan="5" class="p-12 text-center text-slate-400 italic">
+No matching records found on this page.
+</td>
+</tr>`
+
+return
+
+}
+
+
+body.innerHTML = filtered.map(item => `
+
+<tr class="hover:bg-slate-50">
+
+<td class="px-6 py-4">
+<div class="font-bold text-slate-800">${item.item_name || "Unknown Item"}</div>
+<div class="text-[10px] font-mono text-slate-400">${item.item_code || "-"}</div>
+</td>
+
+<td class="px-6 py-4 text-xs text-slate-500">${item.warehouse || "-"}</td>
+
+<td class="px-6 py-4 text-center">
+<span class="px-3 py-1 rounded-full font-bold text-xs ${item.actual_qty<=0?'bg-red-100 text-red-600':'bg-emerald-100 text-emerald-700'}">
+${item.actual_qty || 0}
+</span>
+</td>
+
+<td class="px-6 py-4 text-right font-mono text-slate-600">
+₱${(item.valuation_rate || 0).toLocaleString()}
+</td>
+
+<td class="px-6 py-4 text-right font-mono text-emerald-600 font-bold">
+₱${(item.selling_price || 0).toLocaleString()}
+</td>
+
+</tr>
+
+`).join('')
+
+}
+
+</script>
+
+</body>
+</html>

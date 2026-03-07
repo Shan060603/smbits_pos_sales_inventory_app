@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMB Information Technology Solutions - POS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-slate-100 min-h-screen p-4 sm:p-8" onload="initApp()">
+
+    <div class="max-w-6xl mx-auto space-y-6">
+        <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex justify-between items-center border-b-4 border-amber-500">
+            <div class="flex items-center gap-4">
+                <a href="/" class="bg-white/10 hover:bg-white/20 w-10 h-10 flex items-center justify-center rounded-xl transition-all">
+                    <i class="fa-solid fa-house text-white"></i>
+                </a>
+                <div>
+                    <h1 class="text-xl font-black tracking-tight leading-none uppercase">
+                        SMB <span class="text-amber-500">Information Technology Solutions</span>
+                    </h1>
+                    <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest mt-1">Enterprise POS Terminal</p>
+                </div>
+            </div>
+            <div class="text-right hidden sm:block">
+                <p id="clock" class="text-xl font-mono font-bold text-amber-500"></p>
+                <p class="text-[10px] uppercase tracking-widest opacity-50">Iloilo City Hub</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <div class="lg:col-span-1 space-y-4">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h2 class="font-bold text-slate-800 border-b pb-3 mb-4 text-sm uppercase tracking-wider text-amber-600">Order Setup</h2>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase">Customer</label>
+                            <select id="cust" class="w-full border-2 border-slate-50 rounded-lg p-3 mt-1 bg-white outline-none focus:border-amber-500 text-sm">
+                                <option value="">Select Customer...</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-1 gap-3">
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase">Company</label>
+                                <select id="company" onchange="filterAllByCompany()" class="w-full border-2 border-slate-50 rounded-lg p-2.5 mt-1 bg-white outline-none focus:border-amber-500 text-sm"></select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase">Warehouse</label>
+                                <select id="warehouse" onchange="fetchPriceAndStock()" class="w-full border-2 border-slate-50 rounded-lg p-2.5 mt-1 bg-white outline-none focus:border-amber-500 text-sm"></select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h2 class="font-bold text-slate-800 border-b pb-3 mb-4 text-sm uppercase tracking-wider">Logistics</h2>
+                    <div class="space-y-4">
+                        <div><label class="block text-[10px] font-bold text-slate-400 uppercase">Posting Date</label><input type="date" id="posting_date" class="w-full border-2 border-slate-50 rounded-lg p-2.5 mt-1 text-sm outline-none focus:border-amber-500"></div>
+                        <div><label class="block text-[10px] font-bold text-slate-400 uppercase">Delivery Date</label><input type="date" id="delivery_date" class="w-full border-2 border-slate-50 rounded-lg p-2.5 mt-1 text-sm outline-none focus:border-amber-500"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-3 space-y-4">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 min-h-[550px] flex flex-col">
+                    
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap gap-3 items-end mb-6">
+                        <div class="flex-grow min-w-[200px]">
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-[10px] font-bold text-slate-500 uppercase ml-1">Select Product</label>
+                                <span id="stock-display" class="text-[10px] font-bold bg-white text-emerald-600 px-2 py-0.5 rounded shadow-sm border border-slate-100 hidden"></span>
+                            </div>
+                            <select id="item_input" onchange="fetchPriceAndStock()" class="w-full border border-slate-200 rounded-lg p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm bg-white">
+                                <option value="">Choose an item...</option>
+                            </select>
+                        </div>
+                        <div class="w-20">
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1 ml-1">Qty</label>
+                            <input type="number" id="qty" class="w-full border border-slate-200 rounded-lg p-2.5 text-sm" value="1">
+                        </div>
+                        <div class="w-28">
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1 ml-1">Rate</label>
+                            <input type="number" id="rate" class="w-full border border-slate-200 rounded-lg p-2.5 text-sm" placeholder="0.00">
+                        </div>
+                        <button onclick="addToCart()" class="bg-slate-800 text-white font-bold px-6 py-3 rounded-lg hover:bg-slate-900 transition-all border-b-2 border-amber-500">Add</button>
+                    </div>
+
+                    <div class="flex-grow overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr class="text-[10px] font-bold text-slate-400 uppercase border-b">
+                                    <th class="pb-3">Product Description</th>
+                                    <th class="pb-3 px-2 text-center">Qty</th>
+                                    <th class="pb-3">Unit Price</th>
+                                    <th class="pb-3">Total</th>
+                                    <th class="pb-3 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cart-body" class="text-sm"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="border-t pt-6 mt-6 grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+                        <div class="bg-slate-50 p-4 rounded-xl flex items-center gap-4 border border-slate-100">
+                            <div class="w-24">
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Discount %</label>
+                                <input type="number" id="discount-perc" oninput="renderCart()" class="w-full border-2 border-slate-200 rounded-lg p-2 text-center font-bold" value="0" min="0" max="100">
+                            </div>
+                        </div>
+                        <div class="text-right space-y-2">
+                            <p class="text-xs text-slate-400 font-bold uppercase">Grand Total</p>
+                            <p id="grand-total" class="text-4xl font-black text-slate-800">₱0.00</p>
+                            <button onclick="submitOrder()" id="submit-btn" class="w-full bg-amber-500 text-slate-900 font-black py-4 rounded-xl hover:bg-amber-600 shadow-lg disabled:opacity-50 transition-all uppercase tracking-tighter">
+                                Sync to SMB Information Technology Solutions
+                            </button>
+                        </div>
+                    </div>
+                    <div id="status" class="mt-4 p-3 rounded-lg text-center text-xs font-bold hidden"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let cart = [];
+        let allWarehouses = [], allCustomers = [], allItems = [];
+        let itemCodeToName = {};
+
+        async function initApp() {
+            updateClock();
+            setInterval(updateClock, 1000);
+            document.getElementById('posting_date').valueAsDate = new Date();
+            let tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+            document.getElementById('delivery_date').valueAsDate = tomorrow;
+
+            try {
+                const response = await fetch('/sales/api/metadata');
+                const data = await response.json();
+                
+                allWarehouses = data.warehouses;
+                allCustomers = data.customers; 
+                allItems = data.items;
+                
+                // Populate Company Dropdown
+                const companySelect = document.getElementById('company');
+                companySelect.innerHTML = data.companies.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+                
+                // Populate the NEW Item Select Dropdown
+                const itemSelect = document.getElementById('item_input');
+                itemSelect.innerHTML = '<option value="">Choose an item...</option>' + 
+                    data.items.map(item => {
+                        itemCodeToName[item.name] = item.item_name;
+                        return `<option value="${item.name}">${item.name} - ${item.item_name}</option>`;
+                    }).join('');
+
+                filterAllByCompany();
+            } catch (err) { console.error("Init Error:", err); }
+        }
+
+        function updateClock() { document.getElementById('clock').innerText = new Date().toLocaleTimeString(); }
+
+        function filterAllByCompany() {
+            const selectedCompany = document.getElementById('company').value;
+            
+            // Filter Customers by Company
+            const custSelect = document.getElementById('cust');
+            const filteredCust = allCustomers.filter(c => !c.company || c.company === selectedCompany);
+            custSelect.innerHTML = '<option value="">Select Customer...</option>' + 
+                filteredCust.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+
+            // Filter Warehouses by Company
+            const whSelect = document.getElementById('warehouse');
+            const filteredWH = allWarehouses.filter(w => w.company === selectedCompany);
+            whSelect.innerHTML = filteredWH.map(w => `<option value="${w.name}">${w.name}</option>`).join('');
+            
+            fetchPriceAndStock();
+        }
+
+        async function fetchPriceAndStock() {
+            const itemCode = document.getElementById('item_input').value;
+            const warehouse = document.getElementById('warehouse').value;
+            const stockDisplay = document.getElementById('stock-display');
+            
+            if (!itemCode || !warehouse) {
+                stockDisplay.classList.add('hidden');
+                return;
+            }
+
+            try {
+                // FIXED: Corrected endpoints for Price and Stock
+                const [priceRes, stockRes] = await Promise.all([
+                    fetch(`/sales/api/get_price/${encodeURIComponent(itemCode)}`),
+                    fetch(`/sales/api/get_stock?item_code=${encodeURIComponent(itemCode)}&warehouse=${encodeURIComponent(warehouse)}`)
+                ]);
+                
+                const priceData = await priceRes.json();
+                const stockData = await stockRes.json();
+                
+                document.getElementById('rate').value = priceData.price || 0;
+                
+                stockDisplay.innerText = `STOCK: ${stockData.qty || 0}`;
+                stockDisplay.classList.remove('hidden');
+                stockDisplay.className = (stockData.qty <= 0) 
+                    ? "text-[10px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded shadow-sm border border-red-200" 
+                    : "text-[10px] font-bold bg-white text-emerald-600 px-2 py-0.5 rounded shadow-sm border border-emerald-100";
+            } catch (err) { console.error("Fetch Error:", err); }
+        }
+
+        function addToCart() {
+            const itemCode = document.getElementById('item_input').value;
+            const qty = parseFloat(document.getElementById('qty').value);
+            const rate = parseFloat(document.getElementById('rate').value);
+            const warehouse = document.getElementById('warehouse').value;
+            
+            if (!itemCode || qty <= 0) return alert("Select a valid item and quantity");
+            
+            cart.push({ item_code: itemCode, qty, rate, warehouse });
+            renderCart();
+            
+            // Reset selection
+            document.getElementById('item_input').value = "";
+            document.getElementById('stock-display').classList.add('hidden');
+        }
+
+        function renderCart() {
+            const tbody = document.getElementById('cart-body');
+            let total = 0;
+            tbody.innerHTML = cart.map((row, i) => {
+                const lineTotal = row.qty * row.rate;
+                total += lineTotal;
+                return `
+                    <tr class="border-b">
+                        <td class="py-4 font-bold text-xs">${itemCodeToName[row.item_code] || row.item_code}</td>
+                        <td class="text-center">${row.qty}</td>
+                        <td>₱${row.rate.toLocaleString()}</td>
+                        <td class="font-bold">₱${lineTotal.toLocaleString()}</td>
+                        <td class="text-right">
+                            <button onclick="cart.splice(${i},1);renderCart()" class="text-red-400 hover:text-red-600 transition-colors">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+            }).join('');
+            
+            const disc = parseFloat(document.getElementById('discount-perc').value) || 0;
+            const grand = total * (1 - disc/100);
+            document.getElementById('grand-total').innerText = `₱${grand.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+        }
+
+        async function submitOrder() {
+            if (cart.length === 0) return alert("Cart is empty!");
+            
+            const btn = document.getElementById('submit-btn');
+            const status = document.getElementById('status');
+            
+            btn.disabled = true; 
+            status.innerText = "☁️ SYNCING TO CLOUD..."; 
+            status.className = "mt-4 p-3 rounded-lg text-center text-xs font-bold bg-amber-100 text-amber-700 block";
+
+            const payload = {
+                customer: document.getElementById('cust').value,
+                company: document.getElementById('company').value,
+                posting_date: document.getElementById('posting_date').value,
+                delivery_date: document.getElementById('delivery_date').value,
+                items: cart,
+                additional_discount_percentage: document.getElementById('discount-perc').value
+            };
+
+            try {
+                const response = await fetch('/sales/api/submit', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                
+                if (response.ok) {
+                    status.innerText = "✅ SUCCESS: " + result.message;
+                    status.className = "mt-4 p-3 rounded-lg text-center text-xs font-bold bg-emerald-100 text-emerald-700 block";
+                    cart = []; 
+                    renderCart();
+                } else {
+                    status.innerText = "❌ FAILED: " + result.message;
+                    status.className = "mt-4 p-3 rounded-lg text-center text-xs font-bold bg-red-100 text-red-700 block";
+                }
+            } catch (err) { 
+                status.innerText = "⚠️ CONNECTION ERROR: " + err.message;
+                status.className = "mt-4 p-3 rounded-lg text-center text-xs font-bold bg-red-100 text-red-700 block";
+            }
+            finally { btn.disabled = false; }
+        }
+    </script>
+</body>
+</html>
