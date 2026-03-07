@@ -90,9 +90,21 @@ class SMBITSBridge:
             print(f"❌ Stock Fetch Error: {str(e)}")
             return 0.0
 
-    def send_sales_order(self, customer, company, items, discount=0, posting_date=None, delivery_date=None, project=None, cost_center=None):
-        """Sends the Sales Order. ERPNext expects 'transaction_date' for POs/SOs."""
-        endpoint = f"{self.url}/api/resource/Sales Order"
+    def send_sales_invoice(
+        self,
+        customer,
+        company,
+        items,
+        discount=0,
+        posting_date=None,
+        due_date=None,
+        mode_of_payment=None,
+        paid_amount=0,
+        project=None,
+        cost_center=None
+    ):
+        """Creates a Sales Invoice directly from POS checkout data."""
+        endpoint = f"{self.url}/api/resource/Sales Invoice"
         
         today = datetime.date.today().strftime('%Y-%m-%d')
         
@@ -100,29 +112,133 @@ class SMBITSBridge:
         # ERPNext usually requires 'qty' and 'rate' inside each item object
         formatted_items = []
         for item in items:
-            formatted_items.append({
+            base_rate = float(item['rate'])
+            line = {
                 "item_code": item['item_code'],
                 "qty": float(item['qty']),
-                "rate": float(item['rate']),
+                "rate": base_rate,
                 "warehouse": item.get('warehouse')
-            })
+            }
+            item_discount = float(item.get('discount_percentage') or 0)
+            if item_discount > 0:
+                line["discount_percentage"] = item_discount
+                line["price_list_rate"] = base_rate
+                line["rate"] = base_rate * (1 - (item_discount / 100.0))
+            formatted_items.append(line)
 
         payload = {
             "customer": customer,
-            "company": company, 
-            "transaction_date": posting_date or today,
-            "delivery_date": delivery_date or today,
+            "company": company,
+            "posting_date": posting_date or today,
+            "due_date": due_date or today,
             "project": project if project else None,
             "cost_center": cost_center if cost_center else None,
-            "docstatus": 0, # Draft status
             "items": formatted_items,
             "additional_discount_percentage": float(discount),
-            "apply_discount_on": "Grand Total"
+            "apply_discount_on": "Grand Total",
+            "is_pos": 1,
+            "update_stock": 1
         }
 
+        if mode_of_payment and float(paid_amount or 0) > 0:
+            payload["payments"] = [{
+                "mode_of_payment": mode_of_payment,
+                "amount": float(paid_amount)
+            }]
+            payload["paid_amount"] = float(paid_amount)
+
         try:
-            # Note: We use json=payload which automatically handles Content-Type headers
+            response = requests.post(endpoint, headers=self.headers, json=payload)
+            created = response.json()
+            if "data" not in created:
+                return created
+
+            # Convert invoice to Submitted (docstatus=1) immediately.
+            submit_endpoint = f"{self.url}/api/method/frappe.client.submit"
+            submit_payload = {"doc": created["data"]}
+            submit_response = requests.post(submit_endpoint, headers=self.headers, json=submit_payload)
+            submitted = submit_response.json()
+            return submitted if "message" in submitted else created
+        except Exception as e:
+            return {"error": str(e)}
+
+    def create_customer(self, customer_name):
+        """Creates a Customer in ERPNext with default group/territory."""
+        if not customer_name or not customer_name.strip():
+            return {"error": "Customer name is required."}
+
+        customer_groups = self.get_resource_list("Customer Group")
+        territories = self.get_resource_list("Territory")
+        customer_group = customer_groups[0]["name"] if customer_groups else "All Customer Groups"
+        territory = territories[0]["name"] if territories else "All Territories"
+
+        payload = {
+            "customer_name": customer_name.strip(),
+            "customer_type": "Company",
+            "customer_group": customer_group,
+            "territory": territory
+        }
+
+        endpoint = f"{self.url}/api/resource/Customer"
+        try:
             response = requests.post(endpoint, headers=self.headers, json=payload)
             return response.json()
         except Exception as e:
             return {"error": str(e)}
+
+    def get_sales_invoice_report(
+        self,
+        from_date=None,
+        to_date=None,
+        company=None,
+        customer=None,
+        status="submitted",
+        start=0,
+        page_length=200
+    ):
+        """Fetch Sales Invoice rows with optional filters for reporting."""
+        endpoint = f"{self.url}/api/resource/Sales Invoice"
+        filters = []
+
+        if from_date:
+            filters.append(["posting_date", ">=", from_date])
+        if to_date:
+            filters.append(["posting_date", "<=", to_date])
+        if company:
+            filters.append(["company", "=", company])
+        if customer:
+            filters.append(["customer", "=", customer])
+
+        status_map = {
+            "submitted": 1,
+            "draft": 0,
+            "cancelled": 2
+        }
+        if status in status_map:
+            filters.append(["docstatus", "=", status_map[status]])
+
+        params = {
+            "fields": json.dumps([
+                "name",
+                "posting_date",
+                "customer",
+                "company",
+                "grand_total",
+                "rounded_total",
+                "outstanding_amount",
+                "paid_amount",
+                "docstatus"
+            ]),
+            "filters": json.dumps(filters),
+            "order_by": "posting_date desc, creation desc",
+            "limit_start": int(start or 0),
+            "limit_page_length": int(page_length or 200)
+        }
+
+        try:
+            response = requests.get(endpoint, headers=self.headers, params=params)
+            response.raise_for_status()
+            return response.json().get("data", [])
+        except Exception as e:
+            print(f"❌ Sales Invoice Report Fetch Error: {str(e)}")
+            return []

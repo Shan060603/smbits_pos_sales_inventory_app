@@ -17,14 +17,17 @@
                 </a>
                 <div>
                     <h1 class="text-xl font-black tracking-tight leading-none uppercase">
-                        SMB <span class="text-amber-500">Information Technology Solutions</span>
+                        <span class="text-amber-500">SMB Information Technology Solutions</span>
                     </h1>
                     <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest mt-1">Enterprise POS Terminal</p>
                 </div>
             </div>
-            <div class="text-right hidden sm:block">
-                <p id="clock" class="text-xl font-mono font-bold text-amber-500"></p>
-                <p class="text-[10px] uppercase tracking-widest opacity-50">Iloilo City Hub</p>
+            <div class="flex items-center gap-3">
+                <a href="/sales/report" class="bg-cyan-600 hover:bg-cyan-500 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Invoice Report</a>
+                <div class="text-right hidden sm:block">
+                    <p id="clock" class="text-xl font-mono font-bold text-amber-500"></p>
+                    <p class="text-[10px] uppercase tracking-widest opacity-50">Iloilo City Hub</p>
+                </div>
             </div>
         </div>
 
@@ -34,7 +37,10 @@
                     <h2 class="font-bold text-slate-800 border-b pb-3 mb-4 text-sm uppercase tracking-wider text-amber-600">Order Setup</h2>
                     <div class="space-y-4">
                         <div>
-                            <label class="block text-[10px] font-bold text-slate-400 uppercase">Customer</label>
+                            <div class="flex items-center justify-between">
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase">Customer</label>
+                                <button type="button" onclick="addCustomer()" class="text-[10px] font-bold uppercase text-amber-600 hover:text-amber-700">+ Add</button>
+                            </div>
                             <select id="cust" class="w-full border-2 border-slate-50 rounded-lg p-3 mt-1 bg-white outline-none focus:border-amber-500 text-sm">
                                 <option value="">Select Customer...</option>
                             </select>
@@ -70,7 +76,7 @@
                                 <label class="text-[10px] font-bold text-slate-500 uppercase ml-1">Select Product</label>
                                 <span id="stock-display" class="text-[10px] font-bold bg-white text-emerald-600 px-2 py-0.5 rounded shadow-sm border border-slate-100 hidden"></span>
                             </div>
-                            <select id="item_input" onchange="fetchPriceAndStock()" class="w-full border border-slate-200 rounded-lg p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm bg-white">
+                            <select id="item_input" onchange="onItemChanged()" class="w-full border border-slate-200 rounded-lg p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm bg-white">
                                 <option value="">Choose an item...</option>
                             </select>
                         </div>
@@ -82,6 +88,10 @@
                             <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1 ml-1">Rate</label>
                             <input type="number" id="rate" class="w-full border border-slate-200 rounded-lg p-2.5 text-sm" placeholder="0.00">
                         </div>
+                        <div class="w-24">
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1 ml-1">Disc %</label>
+                            <input type="number" id="item-discount" class="w-full border border-slate-200 rounded-lg p-2.5 text-sm" value="0" min="0" max="100">
+                        </div>
                         <button onclick="addToCart()" class="bg-slate-800 text-white font-bold px-6 py-3 rounded-lg hover:bg-slate-900 transition-all border-b-2 border-amber-500">Add</button>
                     </div>
 
@@ -92,6 +102,7 @@
                                     <th class="pb-3">Product Description</th>
                                     <th class="pb-3 px-2 text-center">Qty</th>
                                     <th class="pb-3">Unit Price</th>
+                                    <th class="pb-3">Disc %</th>
                                     <th class="pb-3">Total</th>
                                     <th class="pb-3 text-right">Action</th>
                                 </tr>
@@ -101,17 +112,43 @@
                     </div>
 
                     <div class="border-t pt-6 mt-6 grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
-                        <div class="bg-slate-50 p-4 rounded-xl flex items-center gap-4 border border-slate-100">
+                        <div class="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-3">
                             <div class="w-24">
                                 <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Discount %</label>
                                 <input type="number" id="discount-perc" oninput="renderCart()" class="w-full border-2 border-slate-200 rounded-lg p-2 text-center font-bold" value="0" min="0" max="100">
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Mode of Payment</label>
+                                    <select id="mode-of-payment" class="w-full border-2 border-slate-200 rounded-lg p-2 text-sm">
+                                        <option value="">Select mode...</option>
+                                        <option value="Cash">Cash</option>
+                                        <option value="GCash">GCash</option>
+                                        <option value="Bank Transfer">Bank Transfer</option>
+                                        <option value="Cheque">Cheque</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount Paid</label>
+                                    <input type="number" id="amount-paid" min="0" step="0.01" oninput="updateCheckoutFields()" class="w-full border-2 border-slate-200 rounded-lg p-2 text-sm font-bold" placeholder="0.00">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3 text-sm">
+                                <div class="bg-white border border-slate-200 rounded-lg p-2">
+                                    <p class="text-[10px] font-bold text-slate-400 uppercase">Amount Due</p>
+                                    <p id="amount-due" class="font-black text-slate-700">₱0.00</p>
+                                </div>
+                                <div class="bg-white border border-slate-200 rounded-lg p-2">
+                                    <p class="text-[10px] font-bold text-slate-400 uppercase">Change</p>
+                                    <p id="change-amount" class="font-black text-emerald-700">₱0.00</p>
+                                </div>
                             </div>
                         </div>
                         <div class="text-right space-y-2">
                             <p class="text-xs text-slate-400 font-bold uppercase">Grand Total</p>
                             <p id="grand-total" class="text-4xl font-black text-slate-800">₱0.00</p>
                             <button onclick="submitOrder()" id="submit-btn" class="w-full bg-amber-500 text-slate-900 font-black py-4 rounded-xl hover:bg-amber-600 shadow-lg disabled:opacity-50 transition-all uppercase tracking-tighter">
-                                Sync to SMB Information Technology Solutions
+                                CHECK OUT
                             </button>
                         </div>
                     </div>
@@ -125,6 +162,7 @@
         let cart = [];
         let allWarehouses = [], allCustomers = [], allItems = [];
         let itemCodeToName = {};
+        let currentGrandTotal = 0;
 
         async function initApp() {
             updateClock();
@@ -154,6 +192,7 @@
                     }).join('');
 
                 filterAllByCompany();
+                renderCart();
             } catch (err) { console.error("Init Error:", err); }
         }
 
@@ -164,9 +203,13 @@
             
             // Filter Customers by Company
             const custSelect = document.getElementById('cust');
+            const previousCustomer = custSelect.value;
             const filteredCust = allCustomers.filter(c => !c.company || c.company === selectedCompany);
             custSelect.innerHTML = '<option value="">Select Customer...</option>' + 
                 filteredCust.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+            if (filteredCust.some(c => c.name === previousCustomer)) {
+                custSelect.value = previousCustomer;
+            }
 
             // Filter Warehouses by Company
             const whSelect = document.getElementById('warehouse');
@@ -174,6 +217,63 @@
             whSelect.innerHTML = filteredWH.map(w => `<option value="${w.name}">${w.name}</option>`).join('');
             
             fetchPriceAndStock();
+        }
+
+        function resetLineInputs(clearItem = false) {
+            if (clearItem) {
+                document.getElementById('item_input').value = '';
+            }
+            document.getElementById('qty').value = 1;
+            document.getElementById('rate').value = '';
+            document.getElementById('item-discount').value = 0;
+            document.getElementById('stock-display').classList.add('hidden');
+        }
+
+        function onItemChanged() {
+            document.getElementById('qty').value = 1;
+            document.getElementById('rate').value = '';
+            document.getElementById('item-discount').value = 0;
+            fetchPriceAndStock();
+        }
+
+        async function addCustomer() {
+            const customerName = prompt('Enter customer name:');
+            if (!customerName || !customerName.trim()) return;
+
+            const status = document.getElementById('status');
+            status.innerText = 'Creating customer...';
+            status.className = 'mt-4 p-3 rounded-lg text-center text-xs font-bold bg-amber-100 text-amber-700 block';
+
+            try {
+                const response = await fetch('/sales/api/customers', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ customer_name: customerName.trim() })
+                });
+                const result = await response.json();
+
+                if (!response.ok) {
+                    status.innerText = `❌ FAILED: ${result.message || 'Unable to create customer.'}`;
+                    status.className = 'mt-4 p-3 rounded-lg text-center text-xs font-bold bg-red-100 text-red-700 block';
+                    return;
+                }
+
+                const created = result.customer || {};
+                const createdName = created.name || customerName.trim();
+                allCustomers.push({
+                    name: createdName,
+                    customer_name: created.customer_name || createdName,
+                    company: created.company || null
+                });
+                filterAllByCompany();
+                document.getElementById('cust').value = createdName;
+
+                status.innerText = `✅ CUSTOMER CREATED: ${createdName}`;
+                status.className = 'mt-4 p-3 rounded-lg text-center text-xs font-bold bg-emerald-100 text-emerald-700 block';
+            } catch (err) {
+                status.innerText = `⚠️ CONNECTION ERROR: ${err.message}`;
+                status.className = 'mt-4 p-3 rounded-lg text-center text-xs font-bold bg-red-100 text-red-700 block';
+            }
         }
 
         async function fetchPriceAndStock() {
@@ -210,29 +310,80 @@
             const itemCode = document.getElementById('item_input').value;
             const qty = parseFloat(document.getElementById('qty').value);
             const rate = parseFloat(document.getElementById('rate').value);
+            const itemDiscount = parseFloat(document.getElementById('item-discount').value) || 0;
             const warehouse = document.getElementById('warehouse').value;
             
             if (!itemCode || qty <= 0) return alert("Select a valid item and quantity");
+            if (itemDiscount < 0 || itemDiscount > 100) return alert("Item discount must be 0 to 100.");
             
-            cart.push({ item_code: itemCode, qty, rate, warehouse });
+            cart.push({ item_code: itemCode, qty, rate, warehouse, discount_percentage: itemDiscount });
             renderCart();
-            
-            // Reset selection
-            document.getElementById('item_input').value = "";
-            document.getElementById('stock-display').classList.add('hidden');
+            resetLineInputs(true);
+        }
+
+        function updateCartQty(index, delta) {
+            if (!cart[index]) return;
+            const nextQty = Number(cart[index].qty || 0) + delta;
+            cart[index].qty = nextQty < 1 ? 1 : nextQty;
+            renderCart();
+        }
+
+        function updateCartItemDiscount(index, value) {
+            if (!cart[index]) return;
+            let discount = Number(value);
+            if (Number.isNaN(discount)) discount = 0;
+            if (discount < 0) discount = 0;
+            if (discount > 100) discount = 100;
+            cart[index].discount_percentage = discount;
+            renderCart();
+        }
+
+        function getGrandTotal() {
+            const subtotal = cart.reduce((sum, row) => {
+                const lineDiscount = Number(row.discount_percentage || 0);
+                return sum + (row.qty * row.rate * (1 - lineDiscount / 100));
+            }, 0);
+            const disc = parseFloat(document.getElementById('discount-perc').value) || 0;
+            return subtotal * (1 - disc / 100);
+        }
+
+        function updateCheckoutFields() {
+            const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
+            const change = paid - currentGrandTotal;
+            document.getElementById('amount-due').innerText = `₱${currentGrandTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+            document.getElementById('change-amount').innerText = `₱${Math.max(change, 0).toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+            document.getElementById('change-amount').className = change < 0 ? 'font-black text-red-600' : 'font-black text-emerald-700';
         }
 
         function renderCart() {
             const tbody = document.getElementById('cart-body');
             let total = 0;
             tbody.innerHTML = cart.map((row, i) => {
-                const lineTotal = row.qty * row.rate;
+                const lineDiscount = Number(row.discount_percentage || 0);
+                const lineTotal = row.qty * row.rate * (1 - lineDiscount / 100);
                 total += lineTotal;
                 return `
                     <tr class="border-b">
                         <td class="py-4 font-bold text-xs">${itemCodeToName[row.item_code] || row.item_code}</td>
-                        <td class="text-center">${row.qty}</td>
+                        <td class="text-center">
+                            <div class="inline-flex items-center gap-2">
+                                <button type="button" onclick="updateCartQty(${i}, -1)" class="w-7 h-7 rounded border border-slate-300 text-slate-700 hover:bg-slate-100">-</button>
+                                <span class="min-w-[24px] inline-block text-center">${row.qty}</span>
+                                <button type="button" onclick="updateCartQty(${i}, 1)" class="w-7 h-7 rounded border border-slate-300 text-slate-700 hover:bg-slate-100">+</button>
+                            </div>
+                        </td>
                         <td>₱${row.rate.toLocaleString()}</td>
+                        <td>
+                            <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                value="${lineDiscount}"
+                                onchange="updateCartItemDiscount(${i}, this.value)"
+                                class="w-20 border border-slate-200 rounded px-2 py-1 text-xs"
+                            >
+                        </td>
                         <td class="font-bold">₱${lineTotal.toLocaleString()}</td>
                         <td class="text-right">
                             <button onclick="cart.splice(${i},1);renderCart()" class="text-red-400 hover:text-red-600 transition-colors">
@@ -243,12 +394,17 @@
             }).join('');
             
             const disc = parseFloat(document.getElementById('discount-perc').value) || 0;
-            const grand = total * (1 - disc/100);
-            document.getElementById('grand-total').innerText = `₱${grand.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+            currentGrandTotal = total * (1 - disc/100);
+            document.getElementById('grand-total').innerText = `₱${currentGrandTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+            updateCheckoutFields();
         }
 
         async function submitOrder() {
             if (cart.length === 0) return alert("Cart is empty!");
+            if (!document.getElementById('cust').value) return alert("Select a customer.");
+            if (!document.getElementById('mode-of-payment').value) return alert("Select a mode of payment.");
+            const paidAmount = parseFloat(document.getElementById('amount-paid').value) || 0;
+            if (paidAmount < currentGrandTotal) return alert("Amount paid is less than the amount due.");
             
             const btn = document.getElementById('submit-btn');
             const status = document.getElementById('status');
@@ -263,7 +419,9 @@
                 posting_date: document.getElementById('posting_date').value,
                 delivery_date: document.getElementById('delivery_date').value,
                 items: cart,
-                additional_discount_percentage: document.getElementById('discount-perc').value
+                additional_discount_percentage: document.getElementById('discount-perc').value,
+                mode_of_payment: document.getElementById('mode-of-payment').value,
+                paid_amount: paidAmount
             };
 
             try {
@@ -278,6 +436,9 @@
                     status.innerText = "✅ SUCCESS: " + result.message;
                     status.className = "mt-4 p-3 rounded-lg text-center text-xs font-bold bg-emerald-100 text-emerald-700 block";
                     cart = []; 
+                    document.getElementById('amount-paid').value = '';
+                    document.getElementById('mode-of-payment').value = '';
+                    resetLineInputs(true);
                     renderCart();
                 } else {
                     status.innerText = "❌ FAILED: " + result.message;

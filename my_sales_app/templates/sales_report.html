@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMBITS - Sales Invoice Report</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-slate-100 min-h-screen p-4 sm:p-8" onload="initReport()">
+    <div class="max-w-7xl mx-auto space-y-6">
+        <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex justify-between items-center border-b-4 border-cyan-500">
+            <div class="flex items-center gap-4">
+                <a href="/" class="bg-white/10 hover:bg-white/20 w-10 h-10 flex items-center justify-center rounded-xl transition-all">
+                    <i class="fa-solid fa-house text-white"></i>
+                </a>
+                <div>
+                    <h1 class="text-xl font-black uppercase tracking-tight">Sales Invoice Report</h1>
+                    <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest">Real-time ERPNext Billing Summary</p>
+                </div>
+            </div>
+            <a href="/sales" class="bg-cyan-600 hover:bg-cyan-500 px-4 py-2 rounded-lg text-xs font-bold transition-all">
+                Back To POS
+            </a>
+        </div>
+
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">From Date</label>
+                <input type="date" id="from_date" class="w-full border border-slate-200 rounded-lg p-2 text-sm">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">To Date</label>
+                <input type="date" id="to_date" class="w-full border border-slate-200 rounded-lg p-2 text-sm">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Company</label>
+                <select id="company" class="w-full border border-slate-200 rounded-lg p-2 text-sm">
+                    <option value="">All Companies</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Customer</label>
+                <select id="customer" class="w-full border border-slate-200 rounded-lg p-2 text-sm">
+                    <option value="">All Customers</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label>
+                <select id="status" class="w-full border border-slate-200 rounded-lg p-2 text-sm">
+                    <option value="submitted">Submitted</option>
+                    <option value="draft">Draft</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="all">All</option>
+                </select>
+            </div>
+            <div class="flex items-end">
+                <button onclick="loadReport()" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 rounded-lg text-sm">
+                    Apply Filters
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-[10px] uppercase font-bold text-slate-400">Invoice Count</p>
+                <p id="sum-count" class="text-2xl font-black text-slate-700">0</p>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-[10px] uppercase font-bold text-slate-400">Total Amount</p>
+                <p id="sum-amount" class="text-2xl font-black text-cyan-700">₱0.00</p>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <p class="text-[10px] uppercase font-bold text-slate-400">Outstanding</p>
+                <p id="sum-outstanding" class="text-2xl font-black text-rose-700">₱0.00</p>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-50 border-b border-slate-100">
+                        <tr class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            <th class="px-5 py-4">Invoice</th>
+                            <th class="px-5 py-4">Date</th>
+                            <th class="px-5 py-4">Customer</th>
+                            <th class="px-5 py-4">Company</th>
+                            <th class="px-5 py-4 text-right">Total</th>
+                            <th class="px-5 py-4 text-right">Paid</th>
+                            <th class="px-5 py-4 text-right">Outstanding</th>
+                            <th class="px-5 py-4 text-center">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="report-body" class="divide-y divide-slate-50"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function peso(v) {
+            return `₱${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+
+        async function initReport() {
+            const today = new Date();
+            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+            document.getElementById('from_date').value = firstDay.toISOString().slice(0, 10);
+            document.getElementById('to_date').value = today.toISOString().slice(0, 10);
+
+            try {
+                const res = await fetch('/sales/api/report_metadata');
+                const data = await res.json();
+
+                const companySelect = document.getElementById('company');
+                companySelect.innerHTML = '<option value="">All Companies</option>' +
+                    (data.companies || []).map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+
+                const customerSelect = document.getElementById('customer');
+                customerSelect.innerHTML = '<option value="">All Customers</option>' +
+                    (data.customers || []).map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+            } catch (e) {
+                console.error('Metadata load failed:', e);
+            }
+
+            loadReport();
+        }
+
+        async function loadReport() {
+            const qs = new URLSearchParams({
+                from_date: document.getElementById('from_date').value,
+                to_date: document.getElementById('to_date').value,
+                company: document.getElementById('company').value,
+                customer: document.getElementById('customer').value,
+                status: document.getElementById('status').value,
+                start: '0',
+                page_length: '500'
+            });
+
+            try {
+                const res = await fetch(`/sales/api/invoice_report?${qs.toString()}`);
+                const data = await res.json();
+                const rows = data.rows || [];
+                const sum = data.summary || {};
+                const body = document.getElementById('report-body');
+
+                document.getElementById('sum-count').innerText = Number(sum.count || 0).toLocaleString();
+                document.getElementById('sum-amount').innerText = peso(sum.total_amount || 0);
+                document.getElementById('sum-outstanding').innerText = peso(sum.total_outstanding || 0);
+
+                if (!rows.length) {
+                    body.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-slate-400 italic">No invoices found for selected filters.</td></tr>';
+                    return;
+                }
+
+                body.innerHTML = rows.map(row => {
+                    const docstatus = Number(row.docstatus || 0);
+                    const statusText = docstatus === 1 ? 'Submitted' : (docstatus === 2 ? 'Cancelled' : 'Draft');
+                    const statusClass = docstatus === 1
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : (docstatus === 2 ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700');
+                    const total = Number(row.rounded_total || row.grand_total || 0);
+
+                    return `
+                        <tr class="hover:bg-slate-50">
+                            <td class="px-5 py-4 font-bold text-slate-700">${row.name || '-'}</td>
+                            <td class="px-5 py-4 text-sm text-slate-600">${row.posting_date || '-'}</td>
+                            <td class="px-5 py-4 text-sm text-slate-700">${row.customer || '-'}</td>
+                            <td class="px-5 py-4 text-sm text-slate-600">${row.company || '-'}</td>
+                            <td class="px-5 py-4 text-right font-mono text-slate-800">${peso(total)}</td>
+                            <td class="px-5 py-4 text-right font-mono text-emerald-700">${peso(row.paid_amount || 0)}</td>
+                            <td class="px-5 py-4 text-right font-mono text-rose-700">${peso(row.outstanding_amount || 0)}</td>
+                            <td class="px-5 py-4 text-center">
+                                <span class="px-2 py-1 rounded-full text-xs font-bold ${statusClass}">${statusText}</span>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (e) {
+                console.error('Report load failed:', e);
+            }
+        }
+    </script>
+</body>
+</html>
