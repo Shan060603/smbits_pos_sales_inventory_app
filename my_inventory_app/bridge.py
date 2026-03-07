@@ -1,7 +1,7 @@
 import os
 import json
 import requests
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, session
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,18 +19,20 @@ inventory_bp = Blueprint(
 # ----------------------------------------------------
 class SMBITSInventoryBridge:
 
-    def __init__(self):
-        self.url = (os.getenv("ERPNEXT_URL") or "").rstrip("/")
-        self.api_key = os.getenv("API_KEY")
-        self.api_secret = os.getenv("API_SECRET")
+    def __init__(self, url=None, api_key=None, api_secret=None):
+        self.url = (url or os.getenv("ERPNEXT_URL") or "").rstrip("/")
+        self.api_key = api_key or os.getenv("API_KEY") or os.getenv("ERP_API_KEY")
+        self.api_secret = api_secret or os.getenv("API_SECRET") or os.getenv("ERP_API_SECRET")
 
         self.session = requests.Session()
-        self.session.headers.update({
-            "Authorization": f"token {self.api_key}:{self.api_secret}",
+        headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
             "Expect": None  # disables 417 error reliably
-        })
+        }
+        if self.api_key and self.api_secret:
+            headers["Authorization"] = f"token {self.api_key}:{self.api_secret}"
+        self.session.headers.update(headers)
 
         # Optional: retry for transient network issues
         adapter = requests.adapters.HTTPAdapter(max_retries=3)
@@ -295,10 +297,12 @@ class SMBITSInventoryBridge:
             return {"ok": False, "error": str(e)}
 
 
-# ----------------------------------------------------
-# INITIALIZE ENGINE
-# ----------------------------------------------------
-inventory_engine = SMBITSInventoryBridge()
+def get_inventory_engine():
+    return SMBITSInventoryBridge(
+        url=session.get("erp_url"),
+        api_key=session.get("erp_api_key"),
+        api_secret=session.get("erp_api_secret")
+    )
 
 
 # ----------------------------------------------------
@@ -311,6 +315,7 @@ def inventory_home():
 
 @inventory_bp.route("/api/metadata", methods=["GET"])
 def get_metadata():
+    inventory_engine = get_inventory_engine()
     company = request.args.get("company")
     wh_filters = [["company", "=", company]] if company else []
 
@@ -333,6 +338,7 @@ def get_metadata():
 
 @inventory_bp.route("/api/stock_report", methods=["GET"])
 def stock_report():
+    inventory_engine = get_inventory_engine()
     company = request.args.get("company")
     warehouse = request.args.get("warehouse")
     start = request.args.get("start", 0, type=int)
@@ -349,6 +355,7 @@ def stock_report():
 
 @inventory_bp.route("/api/stock_entry", methods=["POST"])
 def adjust_stock():
+    inventory_engine = get_inventory_engine()
     data = request.json or {}
     result = inventory_engine.create_stock_entry(
         item_code=data.get("item_code"),
@@ -362,6 +369,7 @@ def adjust_stock():
 @inventory_bp.route("/api/item_rate", methods=["POST"])
 def update_item_rate():
     """Save buying/selling rate directly to Item Price."""
+    inventory_engine = get_inventory_engine()
     data = request.json or {}
     item_code = (data.get("item_code") or "").strip()
     price_type = (data.get("price_type") or "").strip().lower()

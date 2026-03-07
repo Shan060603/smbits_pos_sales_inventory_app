@@ -3,7 +3,7 @@ import requests
 import json
 import datetime
 from pathlib import Path
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, session
 from dotenv import load_dotenv
 
 # Load secrets from the app's own .env (works regardless of cwd)
@@ -19,16 +19,17 @@ purchase_bp = Blueprint(
 )
 
 class SMBITSPurchaseBridge:
-    def __init__(self):
+    def __init__(self, url=None, api_key=None, api_secret=None):
         # rstrip ensures no double slashes in API calls
-        self.url = (os.getenv("ERPNEXT_URL") or "").rstrip('/')
-        self.api_key = os.getenv("API_KEY")
-        self.api_secret = os.getenv("API_SECRET")
+        self.url = (url or os.getenv("ERPNEXT_URL") or "").rstrip('/')
+        self.api_key = api_key or os.getenv("API_KEY") or os.getenv("ERP_API_KEY")
+        self.api_secret = api_secret or os.getenv("API_SECRET") or os.getenv("ERP_API_SECRET")
         self.headers = {
-            "Authorization": f"token {self.api_key}:{self.api_secret}",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
+        if self.api_key and self.api_secret:
+            self.headers["Authorization"] = f"token {self.api_key}:{self.api_secret}"
 
     def get_resource_list(self, doctype):
         """Fetches PO-related resources (Items, Suppliers, Warehouses, Companies)."""
@@ -427,8 +428,13 @@ class SMBITSPurchaseBridge:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
-# --- 2. INITIALIZE ENGINE & DEFINE ROUTES ---
-purchase_engine = SMBITSPurchaseBridge()
+# --- 2. DEFINE ROUTES ---
+def get_purchase_engine():
+    return SMBITSPurchaseBridge(
+        url=session.get("erp_url"),
+        api_key=session.get("erp_api_key"),
+        api_secret=session.get("erp_api_secret")
+    )
 
 @purchase_bp.route('/')
 def purchase_home():
@@ -438,6 +444,7 @@ def purchase_home():
 @purchase_bp.route('/api/metadata', methods=['GET'])
 def get_metadata():
     """Endpoint for the UI to populate dropdowns."""
+    purchase_engine = get_purchase_engine()
     return jsonify({
         "suppliers": purchase_engine.get_resource_list("Supplier"),
         "items": purchase_engine.get_resource_list("Item"),
@@ -449,6 +456,7 @@ def get_metadata():
 @purchase_bp.route('/api/price/<item_code>')
 def get_price(item_code):
     """Fetches item buying price on-the-fly."""
+    purchase_engine = get_purchase_engine()
     price = purchase_engine.get_purchase_price(item_code)
     return jsonify({"price": price})
 
@@ -456,6 +464,7 @@ def get_price(item_code):
 @purchase_bp.route('/api/suppliers', methods=['POST'])
 def create_supplier():
     """Create supplier from purchases UI."""
+    purchase_engine = get_purchase_engine()
     data = request.json or {}
     supplier_name = (data.get('supplier_name') or '').strip()
     result = purchase_engine.create_supplier(supplier_name)
@@ -474,6 +483,7 @@ def create_supplier():
 @purchase_bp.route('/api/items', methods=['POST'])
 def create_item():
     """Create item from purchases UI."""
+    purchase_engine = get_purchase_engine()
     data = request.json or {}
     result = purchase_engine.create_item(
         item_code=(data.get('item_code') or '').strip(),
@@ -496,6 +506,7 @@ def create_item():
 @purchase_bp.route('/api/submit', methods=['POST'])
 def submit_purchase():
     """Processes the PO submission from the frontend."""
+    purchase_engine = get_purchase_engine()
     data = request.json
     result = purchase_engine.send_purchase_order(
         supplier=data.get('supplier'),
@@ -523,6 +534,7 @@ def purchase_reports():
 @purchase_bp.route('/api/report_metadata', methods=['GET'])
 def report_metadata():
     """Metadata for Purchase reports filters."""
+    purchase_engine = get_purchase_engine()
     return jsonify({
         "suppliers": purchase_engine.get_resource_list("Supplier"),
         "companies": purchase_engine.get_resource_list("Company")
@@ -532,6 +544,7 @@ def report_metadata():
 @purchase_bp.route('/api/report', methods=['GET'])
 def purchase_report():
     """Fetch report rows for PO/PI/PR with totals."""
+    purchase_engine = get_purchase_engine()
     report_type = (request.args.get('report_type') or 'purchase_order').lower()
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
@@ -574,6 +587,7 @@ def purchase_report():
 @purchase_bp.route('/api/convert', methods=['POST'])
 def convert_purchase_document():
     """Convert one purchase document to another linked purchase document."""
+    purchase_engine = get_purchase_engine()
     data = request.json or {}
     source_type = (data.get("source_type") or "").lower()
     target_type = (data.get("target_type") or "").lower()

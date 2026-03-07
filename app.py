@@ -22,7 +22,9 @@ app.register_blueprint(sales_bp, url_prefix='/sales')
 app.register_blueprint(purchase_bp, url_prefix='/purchases')
 
 ERPNEXT_URL = (os.getenv("ERPNEXT_URL") or "").rstrip("/")
-IDLE_TIMEOUT_SECONDS = int(os.getenv("IDLE_TIMEOUT_SECONDS", "60"))
+DEFAULT_API_KEY = os.getenv("API_KEY") or os.getenv("ERP_API_KEY") or ""
+DEFAULT_API_SECRET = os.getenv("API_SECRET") or os.getenv("ERP_API_SECRET") or ""
+IDLE_TIMEOUT_SECONDS = int(os.getenv("IDLE_TIMEOUT_SECONDS", "30"))
 
 
 def _is_public_path(path):
@@ -40,12 +42,13 @@ def _is_public_path(path):
 
 
 def _authenticate_erpnext_user(username, password):
-    if not ERPNEXT_URL:
+    base_url = (session.get("erp_url") or ERPNEXT_URL or "").rstrip("/")
+    if not base_url:
         return {"ok": False, "message": "ERPNEXT_URL is not configured on server."}
     try:
         auth_session = requests.Session()
         login_res = auth_session.post(
-            f"{ERPNEXT_URL}/api/method/login",
+            f"{base_url}/api/method/login",
             data={"usr": username, "pwd": password},
             timeout=15
         )
@@ -54,7 +57,7 @@ def _authenticate_erpnext_user(username, password):
             return {"ok": False, "message": payload.get("message") or "Invalid ERPNext credentials."}
 
         user_res = auth_session.get(
-            f"{ERPNEXT_URL}/api/method/frappe.auth.get_logged_user",
+            f"{base_url}/api/method/frappe.auth.get_logged_user",
             timeout=15
         )
         user_payload = user_res.json() if user_res.text else {}
@@ -64,12 +67,35 @@ def _authenticate_erpnext_user(username, password):
         return {"ok": False, "message": f"ERPNext login failed: {str(e)}"}
 
 
+def _validate_api_token(base_url, api_key, api_secret):
+    if not base_url or not api_key or not api_secret:
+        return {"ok": False, "message": "ERP URL, API key, and API secret are required."}
+    try:
+        res = requests.get(
+            f"{base_url}/api/method/frappe.auth.get_logged_user",
+            headers={"Authorization": f"token {api_key}:{api_secret}"},
+            timeout=15
+        )
+        payload = res.json() if res.text else {}
+        user = payload.get("message")
+        if res.status_code == 200 and user:
+            return {"ok": True, "user": user}
+        return {"ok": False, "message": payload.get("message") or "Invalid ERP token credentials."}
+    except Exception as e:
+        return {"ok": False, "message": f"Token validation failed: {str(e)}"}
+
+
 @app.before_request
 def require_login():
     if _is_public_path(request.path):
         return None
 
     if not session.get("erp_user"):
+        if "/api/" in request.path:
+            return Response(status=401)
+        return redirect(url_for("login", next=request.path))
+    if not session.get("erp_url") or not session.get("erp_api_key") or not session.get("erp_api_secret"):
+        session.clear()
         if "/api/" in request.path:
             return Response(status=401)
         return redirect(url_for("login", next=request.path))
@@ -113,22 +139,41 @@ def login():
         next_url = request.args.get("next") or url_for("dashboard")
         if not str(next_url).startswith("/"):
             next_url = url_for("dashboard")
-        return render_template("login.html", next_url=next_url)
+        return render_template(
+            "login.html",
+            next_url=next_url,
+            erp_url=session.get("erp_url") or ERPNEXT_URL
+        )
 
     username = (request.form.get("username") or "").strip()
     password = request.form.get("password") or ""
+    erp_url = (request.form.get("erp_url") or "").strip().rstrip("/")
+    api_key = (request.form.get("api_key") or "").strip()
+    api_secret = (request.form.get("api_secret") or "").strip()
     next_url = request.args.get("next") or request.form.get("next") or url_for("dashboard")
     if not str(next_url).startswith("/"):
         next_url = url_for("dashboard")
 
+    if not erp_url or not api_key or not api_secret:
+        flash("ERP URL, API key, and API secret are required.", "error")
+        return render_template("login.html", next_url=next_url, erp_url=erp_url), 400
     if not username or not password:
         flash("ERPNext username and password are required.", "error")
-        return render_template("login.html", next_url=next_url), 400
+        return render_template("login.html", next_url=next_url, erp_url=erp_url), 400
+
+    token_check = _validate_api_token(erp_url, api_key, api_secret)
+    if not token_check.get("ok"):
+        flash(token_check.get("message") or "Invalid API token credentials.", "error")
+        return render_template("login.html", next_url=next_url, erp_url=erp_url), 401
+
+    session["erp_url"] = erp_url
+    session["erp_api_key"] = api_key
+    session["erp_api_secret"] = api_secret
 
     auth = _authenticate_erpnext_user(username, password)
     if not auth.get("ok"):
         flash(auth.get("message") or "Login failed.", "error")
-        return render_template("login.html", next_url=next_url), 401
+        return render_template("login.html", next_url=next_url, erp_url=erp_url), 401
 
     session["erp_user"] = auth.get("user")
     session["last_activity_ts"] = int(time.time())

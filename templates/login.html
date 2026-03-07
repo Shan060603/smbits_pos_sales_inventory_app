@@ -29,6 +29,47 @@
         <form method="POST" action="/login" class="space-y-4">
             <input type="hidden" name="next" value="{{ next_url or '/' }}">
             <div>
+                <label class="block text-[11px] uppercase tracking-widest font-bold text-slate-400 mb-1">ERPNext URL</label>
+                <div class="flex items-center gap-2 bg-slate-900/70 border border-slate-700 rounded-xl px-3">
+                    <i class="fa-solid fa-globe text-slate-500 text-sm"></i>
+                    <input
+                        name="erp_url"
+                        type="url"
+                        class="w-full bg-transparent py-3 outline-none text-slate-100"
+                        placeholder="https://your-erpnext-site.com"
+                        value="{{ erp_url or '' }}"
+                        required
+                    >
+                </div>
+            </div>
+            <div>
+                <label class="block text-[11px] uppercase tracking-widest font-bold text-slate-400 mb-1">API Key</label>
+                <div class="flex items-center gap-2 bg-slate-900/70 border border-slate-700 rounded-xl px-3">
+                    <i class="fa-solid fa-key text-slate-500 text-sm"></i>
+                    <input
+                        name="api_key"
+                        type="password"
+                        autocomplete="off"
+                        class="w-full bg-transparent py-3 outline-none text-slate-100"
+                        placeholder="API Key"
+                        required
+                    >
+                </div>
+            </div>
+            <div>
+                <label class="block text-[11px] uppercase tracking-widest font-bold text-slate-400 mb-1">API Secret</label>
+                <div class="flex items-center gap-2 bg-slate-900/70 border border-slate-700 rounded-xl px-3">
+                    <i class="fa-solid fa-shield-halved text-slate-500 text-sm"></i>
+                    <input
+                        name="api_secret"
+                        type="password"
+                        class="w-full bg-transparent py-3 outline-none text-slate-100"
+                        placeholder="API Secret"
+                        required
+                    >
+                </div>
+            </div>
+            <div>
                 <label class="block text-[11px] uppercase tracking-widest font-bold text-slate-400 mb-1">ERPNext User</label>
                 <div class="flex items-center gap-2 bg-slate-900/70 border border-slate-700 rounded-xl px-3">
                     <i class="fa-solid fa-user text-slate-500 text-sm"></i>

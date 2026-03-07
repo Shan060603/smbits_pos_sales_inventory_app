@@ -1,13 +1,17 @@
 import socket
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, session
 # Explicit relative import to find the bridge in the same folder
 from .bridge import SMBITSBridge
 
 # 1. Define the Blueprint with the template folder specified
 sales_bp = Blueprint('sales_bp', __name__, template_folder='templates')
 
-# 2. Initialize the bridge logic
-bridge = SMBITSBridge()
+def get_bridge():
+    return SMBITSBridge(
+        url=session.get("erp_url"),
+        api_key=session.get("erp_api_key"),
+        api_secret=session.get("erp_api_secret")
+    )
 
 @sales_bp.route('/')
 def index():
@@ -24,6 +28,7 @@ def sales_invoice_report():
 def get_metadata():
     """Fetches all dropdown data for Customers, Projects, and Cost Centers."""
     try:
+        bridge = get_bridge()
         # Fetching raw lists from ERPNext via the bridge
         raw_warehouses = bridge.get_resource_list("Warehouse")
         raw_customers = bridge.get_resource_list("Customer")
@@ -50,6 +55,7 @@ def get_metadata():
 def get_report_metadata():
     """Fetch lightweight metadata for sales reporting filters."""
     try:
+        bridge = get_bridge()
         customers = bridge.get_resource_list("Customer")
         companies = bridge.get_resource_list("Company")
         return jsonify({
@@ -63,6 +69,7 @@ def get_report_metadata():
 @sales_bp.route('/api/invoice_report', methods=['GET'])
 def invoice_report():
     """Returns filtered Sales Invoice rows plus summary totals."""
+    bridge = get_bridge()
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
     company = request.args.get('company')
@@ -102,12 +109,14 @@ def invoice_report():
 @sales_bp.route('/api/get_price/<path:item_code>')
 def get_price(item_code):
     """Fetches the standard selling rate for an item."""
+    bridge = get_bridge()
     price = bridge.get_item_price(item_code)
     return jsonify({"price": price})
 
 @sales_bp.route('/api/get_stock')
 def get_stock():
     """Fetches real-time stock levels for a specific item and warehouse."""
+    bridge = get_bridge()
     item_code = request.args.get('item_code')
     warehouse = request.args.get('warehouse')
     if not item_code or not warehouse:
@@ -119,6 +128,7 @@ def get_stock():
 @sales_bp.route('/api/customers', methods=['POST'])
 def create_customer():
     """Creates a new customer from POS."""
+    bridge = get_bridge()
     data = request.json or {}
     customer_name = (data.get('customer_name') or '').strip()
     if not customer_name:
@@ -141,6 +151,7 @@ def create_customer():
 @sales_bp.route('/api/submit', methods=['POST'])
 def submit_order():
     """Transmits the POS cart to ERPNext as a Sales Invoice."""
+    bridge = get_bridge()
     data = request.json or {}
     items = data.get('items') or []
     customer = data.get('customer')

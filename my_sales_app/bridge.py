@@ -8,16 +8,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class SMBITSBridge:
-    def __init__(self):
+    def __init__(self, url=None, api_key=None, api_secret=None):
         # rstrip handles cases where the URL might have a trailing slash in .env
-        self.url = os.getenv("ERPNEXT_URL", "").rstrip('/')
-        self.api_key = os.getenv("API_KEY")
-        self.api_secret = os.getenv("API_SECRET")
+        self.url = (url or os.getenv("ERPNEXT_URL", "")).rstrip('/')
+        self.api_key = api_key or os.getenv("API_KEY") or os.getenv("ERP_API_KEY")
+        self.api_secret = api_secret or os.getenv("API_SECRET") or os.getenv("ERP_API_SECRET")
         self.headers = {
-            "Authorization": f"token {self.api_key}:{self.api_secret}",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
+        if self.api_key and self.api_secret:
+            self.headers["Authorization"] = f"token {self.api_key}:{self.api_secret}"
 
     def get_resource_list(self, doctype):
         """Fetches resources with specific fields based on doctype for dropdowns."""
