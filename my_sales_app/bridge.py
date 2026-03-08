@@ -243,3 +243,61 @@ class SMBITSBridge:
         except Exception as e:
             print(f"❌ Sales Invoice Report Fetch Error: {str(e)}")
             return []
+
+    def get_sales_order_report(
+        self,
+        from_date=None,
+        to_date=None,
+        company=None,
+        customer=None,
+        status="submitted",
+        start=0,
+        page_length=200
+    ):
+        """Fetch Sales Order rows with optional filters for reporting."""
+        endpoint = f"{self.url}/api/resource/Sales Order"
+        filters = []
+
+        if from_date:
+            filters.append(["transaction_date", ">=", from_date])
+        if to_date:
+            filters.append(["transaction_date", "<=", to_date])
+        if company:
+            filters.append(["company", "=", company])
+        if customer:
+            filters.append(["customer", "=", customer])
+
+        status_map = {
+            "submitted": 1,
+            "draft": 0,
+            "cancelled": 2
+        }
+        if status in status_map:
+            filters.append(["docstatus", "=", status_map[status]])
+
+        params = {
+            "fields": json.dumps([
+                "name",
+                "transaction_date",
+                "customer",
+                "company",
+                "grand_total",
+                "rounded_total",
+                "per_billed",
+                "per_delivered",
+                "status",
+                "docstatus"
+            ]),
+            "filters": json.dumps(filters),
+            "order_by": "transaction_date desc, creation desc",
+            "limit_start": int(start or 0),
+            "limit_page_length": int(page_length or 200)
+        }
+
+        try:
+            response = requests.get(endpoint, headers=self.headers, params=params)
+            response.raise_for_status()
+            return response.json().get("data", [])
+        except Exception as e:
+            print(f"❌ Sales Order Report Fetch Error: {str(e)}")
+            return []

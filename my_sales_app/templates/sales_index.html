@@ -8,7 +8,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body class="bg-slate-100 min-h-screen p-4 sm:p-8 overflow-x-hidden" onload="initApp()">
-
     <div class="max-w-6xl mx-auto space-y-6">
         <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex flex-wrap justify-between items-center gap-3 border-b-4 border-amber-500">
             <div class="flex items-center gap-4 min-w-0">
@@ -22,10 +21,16 @@
             <div class="w-full md:w-auto relative">
                 <div class="hidden md:flex items-center justify-end gap-2">
                     <a href="/" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Home</a>
+                    <div class="relative">
+                        <button type="button" onclick="toggleTopNavMenu('sales-reports-menu-desktop')" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Reports</button>
+                        <div id="sales-reports-menu-desktop" class="hidden absolute right-0 mt-2 w-52 bg-slate-800 border border-amber-500/40 rounded-xl p-2 shadow-xl z-50 space-y-1">
+                            <a href="/sales/report" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Sales Invoice Report</a>
+                            <a href="/sales/order-report" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Sales Order Report</a>
+                        </div>
+                    </div>
                     <button type="button" onclick="window.location.reload()" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
                         <i class="fa-solid fa-sync mr-1"></i>Refresh
                     </button>
-                    <a href="/sales/report" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Invoice Report</a>
                     <form method="POST" action="/logout">
                         <button type="submit" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Logout</button>
                     </form>
@@ -41,8 +46,12 @@
                 </div>
                 <div id="sales-top-menu" class="hidden md:hidden absolute right-0 mt-2 w-52 bg-slate-800 border border-amber-500/40 rounded-xl p-2 shadow-xl z-50 space-y-1">
                     <a href="/" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Home</a>
+                    <button type="button" onclick="toggleTopNavMenu('sales-reports-menu-mobile')" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Reports</button>
+                    <div id="sales-reports-menu-mobile" class="hidden pl-2 space-y-1">
+                        <a href="/sales/report" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Sales Invoice Report</a>
+                        <a href="/sales/order-report" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Sales Order Report</a>
+                    </div>
                     <button type="button" onclick="window.location.reload()" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Refresh</button>
-                    <a href="/sales/report" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Invoice Report</a>
                     <form method="POST" action="/logout">
                         <button type="submit" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Logout</button>
                     </form>

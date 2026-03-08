@@ -3,28 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SMBITS - Sales Invoice Report</title>
+    <title>SMBITS - Sales Order Report</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body class="bg-slate-100 min-h-screen p-4 sm:p-8 overflow-x-hidden" onload="initReport()">
     <div class="max-w-7xl mx-auto space-y-6">
-        <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex flex-wrap justify-between items-center gap-3 border-b-4 border-cyan-500">
+        <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-lg flex flex-wrap justify-between items-center gap-3 border-b-4 border-amber-500">
             <div>
-                <h1 class="text-xl font-black uppercase tracking-tight">Sales Invoice Report</h1>
-                <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest">Real-time ERPNext Billing Summary</p>
+                <h1 class="text-xl font-black uppercase tracking-tight">Sales Order Report</h1>
+                <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest">Real-time ERPNext Sales Order Summary</p>
             </div>
             <div class="w-full md:w-auto relative">
                 <div class="hidden md:flex items-center justify-end gap-2">
-                    <a href="/" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
-                        Home
-                    </a>
-                    <a href="/sales" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
-                        Back To POS
-                    </a>
+                    <a href="/" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">Home</a>
+                    <a href="/sales" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">Back To POS</a>
                     <div class="relative">
                         <button type="button" onclick="toggleTopNavMenu('sales-reports-menu-desktop')" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">Reports</button>
-                        <div id="sales-reports-menu-desktop" class="hidden absolute right-0 mt-2 w-52 bg-slate-800 border border-cyan-500/40 rounded-xl p-2 shadow-xl z-50 space-y-1">
+                        <div id="sales-reports-menu-desktop" class="hidden absolute right-0 mt-2 w-52 bg-slate-800 border border-amber-500/40 rounded-xl p-2 shadow-xl z-50 space-y-1">
                             <a href="/sales/report" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Sales Invoice Report</a>
                             <a href="/sales/order-report" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Sales Order Report</a>
                         </div>
@@ -33,17 +29,13 @@
                         <i class="fa-solid fa-sync mr-1"></i> Refresh
                     </button>
                     <form method="POST" action="/logout">
-                        <button type="submit" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">
-                            Logout
-                        </button>
+                        <button type="submit" class="bg-slate-900/30 hover:bg-slate-900/50 px-4 py-2 rounded-lg text-xs font-bold transition-all">Logout</button>
                     </form>
                 </div>
                 <div class="md:hidden flex justify-end">
-                    <button type="button" onclick="toggleTopNavMenu('sales-report-top-menu')" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
-                        Menu
-                    </button>
+                    <button type="button" onclick="toggleTopNavMenu('sales-order-report-top-menu')" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Menu</button>
                 </div>
-                <div id="sales-report-top-menu" class="hidden md:hidden absolute right-0 mt-2 w-52 bg-slate-800 border border-cyan-500/40 rounded-xl p-2 shadow-xl z-50 space-y-1">
+                <div id="sales-order-report-top-menu" class="hidden md:hidden absolute right-0 mt-2 w-52 bg-slate-800 border border-amber-500/40 rounded-xl p-2 shadow-xl z-50 space-y-1">
                     <a href="/" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Home</a>
                     <a href="/sales" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Back To POS</a>
                     <button type="button" onclick="toggleTopNavMenu('sales-reports-menu-mobile')" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Reports</button>
@@ -90,24 +82,22 @@
                 </select>
             </div>
             <div class="flex items-end">
-                <button onclick="loadReport()" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 rounded-lg text-sm">
-                    Apply Filters
-                </button>
+                <button onclick="loadReport()" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 rounded-lg text-sm">Apply Filters</button>
             </div>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div class="bg-white rounded-xl border border-slate-200 p-4">
-                <p class="text-[10px] uppercase font-bold text-slate-400">Invoice Count</p>
+                <p class="text-[10px] uppercase font-bold text-slate-400">Order Count</p>
                 <p id="sum-count" class="text-2xl font-black text-slate-700">0</p>
             </div>
             <div class="bg-white rounded-xl border border-slate-200 p-4">
                 <p class="text-[10px] uppercase font-bold text-slate-400">Total Amount</p>
-                <p id="sum-amount" class="text-2xl font-black text-cyan-700">₱0.00</p>
+                <p id="sum-amount" class="text-2xl font-black text-amber-700">₱0.00</p>
             </div>
             <div class="bg-white rounded-xl border border-slate-200 p-4">
-                <p class="text-[10px] uppercase font-bold text-slate-400">Outstanding</p>
-                <p id="sum-outstanding" class="text-2xl font-black text-rose-700">₱0.00</p>
+                <p class="text-[10px] uppercase font-bold text-slate-400">Estimated To Bill</p>
+                <p id="sum-to-bill" class="text-2xl font-black text-rose-700">₱0.00</p>
             </div>
         </div>
 
@@ -116,13 +106,13 @@
                 <table class="w-full text-left">
                     <thead class="bg-slate-50 border-b border-slate-100">
                         <tr class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                            <th class="px-5 py-4">Invoice</th>
+                            <th class="px-5 py-4">Order</th>
                             <th class="px-5 py-4">Date</th>
                             <th class="px-5 py-4">Customer</th>
                             <th class="px-5 py-4">Company</th>
                             <th class="px-5 py-4 text-right">Total</th>
-                            <th class="px-5 py-4 text-right">Paid</th>
-                            <th class="px-5 py-4 text-right">Outstanding</th>
+                            <th class="px-5 py-4 text-right">% Billed</th>
+                            <th class="px-5 py-4 text-right">% Delivered</th>
                             <th class="px-5 py-4 text-center">Status</th>
                         </tr>
                     </thead>
@@ -135,6 +125,10 @@
     <script>
         function peso(v) {
             return `₱${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+
+        function pct(v) {
+            return `${Number(v || 0).toFixed(2)}%`;
         }
 
         function toggleTopNavMenu(id) {
@@ -179,7 +173,7 @@
             });
 
             try {
-                const res = await fetch(`/sales/api/invoice_report?${qs.toString()}`);
+                const res = await fetch(`/sales/api/order_report?${qs.toString()}`);
                 const data = await res.json();
                 const rows = data.rows || [];
                 const sum = data.summary || {};
@@ -187,33 +181,34 @@
 
                 document.getElementById('sum-count').innerText = Number(sum.count || 0).toLocaleString();
                 document.getElementById('sum-amount').innerText = peso(sum.total_amount || 0);
-                document.getElementById('sum-outstanding').innerText = peso(sum.total_outstanding || 0);
+                document.getElementById('sum-to-bill').innerText = peso(sum.total_to_bill || 0);
 
                 if (!rows.length) {
-                    body.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-slate-400 italic">No invoices found for selected filters.</td></tr>';
+                    body.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-slate-400 italic">No sales orders found for selected filters.</td></tr>';
                     return;
                 }
 
                 body.innerHTML = rows.map(row => {
                     const docstatus = Number(row.docstatus || 0);
-                    const statusText = docstatus === 1 ? 'Submitted' : (docstatus === 2 ? 'Cancelled' : 'Draft');
-                    const statusClass = docstatus === 1
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : (docstatus === 2 ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700');
+                    const statusText = row.status || (docstatus === 1 ? 'Submitted' : (docstatus === 2 ? 'Cancelled' : 'Draft'));
+                    let statusClass = 'bg-slate-100 text-slate-700';
+                    if (docstatus === 2) statusClass = 'bg-rose-100 text-rose-700';
+                    else if (docstatus === 0) statusClass = 'bg-amber-100 text-amber-700';
+                    else if ((statusText || '').toLowerCase().includes('completed')) statusClass = 'bg-emerald-100 text-emerald-700';
+                    else if ((statusText || '').toLowerCase().includes('bill')) statusClass = 'bg-cyan-100 text-cyan-700';
+
                     const total = Number(row.rounded_total || row.grand_total || 0);
 
                     return `
                         <tr class="hover:bg-slate-50">
                             <td class="px-5 py-4 font-bold text-slate-700">${row.name || '-'}</td>
-                            <td class="px-5 py-4 text-sm text-slate-600">${row.posting_date || '-'}</td>
+                            <td class="px-5 py-4 text-sm text-slate-600">${row.transaction_date || '-'}</td>
                             <td class="px-5 py-4 text-sm text-slate-700">${row.customer || '-'}</td>
                             <td class="px-5 py-4 text-sm text-slate-600">${row.company || '-'}</td>
                             <td class="px-5 py-4 text-right font-mono text-slate-800">${peso(total)}</td>
-                            <td class="px-5 py-4 text-right font-mono text-emerald-700">${peso(row.paid_amount || 0)}</td>
-                            <td class="px-5 py-4 text-right font-mono text-rose-700">${peso(row.outstanding_amount || 0)}</td>
-                            <td class="px-5 py-4 text-center">
-                                <span class="px-2 py-1 rounded-full text-xs font-bold ${statusClass}">${statusText}</span>
-                            </td>
+                            <td class="px-5 py-4 text-right font-mono text-cyan-700">${pct(row.per_billed || 0)}</td>
+                            <td class="px-5 py-4 text-right font-mono text-emerald-700">${pct(row.per_delivered || 0)}</td>
+                            <td class="px-5 py-4 text-center"><span class="px-2 py-1 rounded-full text-xs font-bold ${statusClass}">${statusText}</span></td>
                         </tr>
                     `;
                 }).join('');

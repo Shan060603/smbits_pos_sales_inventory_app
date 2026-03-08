@@ -7,20 +7,26 @@
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-100 min-h-screen p-4 sm:p-8 overflow-x-hidden" onload="initApp()">
-
     <div class="max-w-6xl mx-auto space-y-6">
         <div class="bg-indigo-700 p-6 rounded-2xl text-white shadow-lg flex flex-wrap justify-between items-center gap-3">
             <div>
-                <h1 class="text-2xl font-bold uppercase tracking-tight">SolarEco <span class="font-light opacity-80">Purchasing</span></h1>
+                <h1 class="text-2xl font-bold uppercase tracking-tight">SMBITS <span class="font-light opacity-80">Purchasing</span></h1>
                 <p class="text-indigo-100 text-sm italic">External Supplier Procurement Portal</p>
             </div>
             <div class="w-full md:w-auto relative">
                 <div class="hidden md:flex items-center justify-end gap-2">
                     <a href="/" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Home</a>
+                    <div class="relative">
+                        <button type="button" onclick="toggleTopNavMenu('purchase-reports-menu-desktop')" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Reports</button>
+                        <div id="purchase-reports-menu-desktop" class="hidden absolute right-0 mt-2 w-56 bg-indigo-800 border border-indigo-500/40 rounded-xl p-2 shadow-xl z-50 space-y-1">
+                            <a href="/purchases/report?type=purchase_order" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/40">Purchase Order Report</a>
+                            <a href="/purchases/report?type=purchase_invoice" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/40">Purchase Invoice Report</a>
+                            <a href="/purchases/report?type=purchase_receipt" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/40">Purchase Receipt Report</a>
+                        </div>
+                    </div>
                     <button type="button" onclick="window.location.reload()" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
                         <i class="fa-solid fa-sync mr-1"></i>Refresh
                     </button>
-                    <a href="/purchases/report" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Reports</a>
                     <form method="POST" action="/logout">
                         <button type="submit" class="bg-slate-900/30 hover:bg-slate-900/50 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Logout</button>
                     </form>
@@ -36,8 +42,13 @@
                 </div>
                 <div id="purchase-top-menu" class="hidden md:hidden absolute right-0 mt-2 w-52 bg-indigo-800 border border-indigo-500/40 rounded-xl p-2 shadow-xl z-50 space-y-1">
                     <a href="/" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/40">Home</a>
+                    <button type="button" onclick="toggleTopNavMenu('purchase-reports-menu-mobile')" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/40">Reports</button>
+                    <div id="purchase-reports-menu-mobile" class="hidden pl-2 space-y-1">
+                        <a href="/purchases/report?type=purchase_order" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/40">Purchase Order Report</a>
+                        <a href="/purchases/report?type=purchase_invoice" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/40">Purchase Invoice Report</a>
+                        <a href="/purchases/report?type=purchase_receipt" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/40">Purchase Receipt Report</a>
+                    </div>
                     <button type="button" onclick="window.location.reload()" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/40">Refresh</button>
-                    <a href="/purchases/report" class="block px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/40">Reports</a>
                     <form method="POST" action="/logout">
                         <button type="submit" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/40">Logout</button>
                     </form>

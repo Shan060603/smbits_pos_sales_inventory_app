@@ -24,6 +24,12 @@ def sales_invoice_report():
     """Serves the sales invoice report UI."""
     return render_template('sales_report.html')
 
+
+@sales_bp.route('/order-report')
+def sales_order_report():
+    """Serves the sales order report UI."""
+    return render_template('sales_order_report.html')
+
 @sales_bp.route('/api/metadata', methods=['GET'])
 def get_metadata():
     """Fetches all dropdown data for Customers, Projects, and Cost Centers."""
@@ -103,6 +109,46 @@ def invoice_report():
             "total_amount": total_amount,
             "total_paid": total_paid,
             "total_outstanding": total_outstanding
+        }
+    })
+
+
+@sales_bp.route('/api/order_report', methods=['GET'])
+def order_report():
+    """Returns filtered Sales Order rows plus summary totals."""
+    bridge = get_bridge()
+    from_date = request.args.get('from_date')
+    to_date = request.args.get('to_date')
+    company = request.args.get('company')
+    customer = request.args.get('customer')
+    status = (request.args.get('status') or 'submitted').lower()
+    start = request.args.get('start', 0, type=int)
+    page_length = request.args.get('page_length', 200, type=int)
+
+    rows = bridge.get_sales_order_report(
+        from_date=from_date,
+        to_date=to_date,
+        company=company,
+        customer=customer,
+        status=status,
+        start=start,
+        page_length=page_length
+    )
+
+    total_amount = 0.0
+    total_to_bill = 0.0
+    for row in rows:
+        row_total = float(row.get('rounded_total') or row.get('grand_total') or 0)
+        billed_pct = float(row.get('per_billed') or 0)
+        total_amount += row_total
+        total_to_bill += max(row_total * (1 - (billed_pct / 100.0)), 0.0)
+
+    return jsonify({
+        "rows": rows,
+        "summary": {
+            "count": len(rows),
+            "total_amount": total_amount,
+            "total_to_bill": total_to_bill
         }
     })
 

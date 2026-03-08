@@ -3,7 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>SMBITS - Enterprise Operations</title>
+    <link rel="manifest" href="/manifest.webmanifest">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
@@ -64,6 +68,9 @@
                 </button>
                 <button onclick="openSalesDestination('/sales/report')" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-black py-4 rounded-2xl transition-all uppercase text-xs tracking-widest">
                     Open Invoice Report
+                </button>
+                <button onclick="openSalesDestination('/sales/order-report')" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-black py-4 rounded-2xl transition-all uppercase text-xs tracking-widest">
+                    Open Sales Order Report
                 </button>
                 <button onclick="toggleSalesModal()" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-black py-4 rounded-2xl transition-all uppercase text-xs tracking-widest">
                     Cancel
@@ -150,6 +157,7 @@
                     </button>
                     <div id="dashboard-account-menu" class="hidden absolute right-0 mt-2 w-56 bg-slate-800 border border-slate-600 rounded-xl p-2 shadow-xl z-50 space-y-1">
                         <div class="px-3 py-2 text-[10px] uppercase tracking-widest text-slate-400 font-black truncate">{{ session.get('erp_user', 'ERP User') }}</div>
+                        <button type="button" onclick="handleInstallClick()" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Add To Home Screen</button>
                         <form method="POST" action="/logout">
                             <button type="submit" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Logout</button>
                         </form>
@@ -265,6 +273,49 @@
             const menu = document.getElementById(id);
             if (!menu) return;
             menu.classList.toggle('hidden');
+        }
+
+        let deferredInstallPrompt = null;
+
+        window.addEventListener('beforeinstallprompt', (event) => {
+            event.preventDefault();
+            deferredInstallPrompt = event;
+        });
+
+        function isIosSafari() {
+            const ua = window.navigator.userAgent || '';
+            const isIos = /iPhone|iPad|iPod/i.test(ua);
+            const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS/i.test(ua);
+            return isIos && isSafari;
+        }
+
+        async function handleInstallClick() {
+            const accountMenu = document.getElementById('dashboard-account-menu');
+            if (accountMenu && !accountMenu.classList.contains('hidden')) {
+                accountMenu.classList.add('hidden');
+            }
+
+            if (deferredInstallPrompt) {
+                deferredInstallPrompt.prompt();
+                try {
+                    await deferredInstallPrompt.userChoice;
+                } catch (e) {}
+                deferredInstallPrompt = null;
+                return;
+            }
+
+            if (isIosSafari()) {
+                alert('On iPhone/iPad: tap Share, then tap \"Add to Home Screen\".');
+                return;
+            }
+
+            alert('Install prompt is not available on this browser right now. If supported, open browser menu and choose \"Install app\" or \"Add to Home screen\".');
+        }
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(() => {});
+            });
         }
 
         // Uptime Counter

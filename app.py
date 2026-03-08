@@ -32,6 +32,8 @@ def _is_public_path(path):
         "/login",
         "/health",
         "/favicon.ico",
+        "/manifest.webmanifest",
+        "/sw.js",
         "/static/"
     )
     if any(path.startswith(prefix) for prefix in public_prefixes):
@@ -202,6 +204,18 @@ def favicon():
     if os.path.exists("favicon.ico"):
         return send_from_directory(".", "favicon.ico")
     return Response(status=204)
+
+
+@app.route("/manifest.webmanifest")
+def webmanifest():
+    """Serve PWA manifest."""
+    return send_from_directory("static", "manifest.webmanifest")
+
+
+@app.route("/sw.js")
+def service_worker():
+    """Serve service worker at root scope."""
+    return send_from_directory("static", "sw.js")
 
 
 if __name__ == "__main__":
