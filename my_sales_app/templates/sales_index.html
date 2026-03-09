@@ -99,6 +99,21 @@
                 <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 min-h-[550px] flex flex-col">
                     
                     <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap gap-3 items-end mb-6">
+                        <div class="w-full md:w-72">
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1 ml-1">Scan Barcode</label>
+                            <div class="flex gap-2">
+                                <input
+                                    type="text"
+                                    id="barcode_input"
+                                    onkeydown="handleBarcodeKeydown(event)"
+                                    class="w-full border border-slate-200 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-amber-500 text-sm bg-white"
+                                    placeholder="Scan barcode then press Enter"
+                                >
+                                <button type="button" onclick="scanBarcode()" class="bg-slate-800 text-white font-bold px-3 py-2 rounded-lg hover:bg-slate-900 text-xs uppercase">
+                                    Scan
+                                </button>
+                            </div>
+                        </div>
                         <div class="flex-grow min-w-[200px]">
                             <div class="flex justify-between items-center mb-1">
                                 <label class="text-[10px] font-bold text-slate-500 uppercase ml-1">Select Product</label>
@@ -229,6 +244,9 @@
         let allWarehouses = [], allCustomers = [], allItems = [];
         let itemCodeToName = {};
         let currentGrandTotal = 0;
+        let scannerBuffer = '';
+        let scannerLastTs = 0;
+        let scannerListenerAttached = false;
 
         async function initApp() {
             updateClock();
@@ -260,6 +278,7 @@
 
                 filterAllByCompany();
                 renderCart();
+                attachGlobalScannerListener();
             } catch (err) { console.error("Init Error:", err); }
         }
 
@@ -341,6 +360,96 @@
             document.getElementById('rate').value = '';
             document.getElementById('item-discount').value = 0;
             fetchPriceAndStock();
+        }
+
+        function handleBarcodeKeydown(event) {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            scanBarcode();
+        }
+
+        function attachGlobalScannerListener() {
+            if (scannerListenerAttached) return;
+            scannerListenerAttached = true;
+            document.addEventListener('keydown', onGlobalScannerKeydown, true);
+        }
+
+        function onGlobalScannerKeydown(event) {
+            if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+
+            const now = Date.now();
+            if ((now - scannerLastTs) > 150) {
+                scannerBuffer = '';
+            }
+            scannerLastTs = now;
+
+            if (event.key === 'Enter') {
+                const code = (scannerBuffer || '').trim();
+                scannerBuffer = '';
+                if (code.length >= 4) {
+                    event.preventDefault();
+                    scanBarcode(code);
+                }
+                return;
+            }
+
+            if (event.key.length === 1) {
+                scannerBuffer += event.key;
+                const barcodeInput = document.getElementById('barcode_input');
+                if (barcodeInput) barcodeInput.value = scannerBuffer;
+            }
+        }
+
+        async function addScannedItem(itemCode) {
+            const warehouse = document.getElementById('warehouse').value;
+            const existingIndex = cart.findIndex(row => row.item_code === itemCode && row.warehouse === warehouse);
+            if (existingIndex >= 0) {
+                cart[existingIndex].qty = Number(cart[existingIndex].qty || 0) + 1;
+                renderCart();
+                return;
+            }
+
+            document.getElementById('item_input').value = itemCode;
+            await fetchPriceAndStock();
+            const rate = parseFloat(document.getElementById('rate').value) || 0;
+            const itemDiscount = parseFloat(document.getElementById('item-discount').value) || 0;
+            cart.push({ item_code: itemCode, qty: 1, rate, warehouse, discount_percentage: itemDiscount });
+            renderCart();
+            resetLineInputs(true);
+        }
+
+        async function scanBarcode(barcodeValue = null) {
+            const barcodeInput = document.getElementById('barcode_input');
+            const raw = (barcodeValue || barcodeInput.value || '').trim();
+            if (!raw) return;
+
+            try {
+                const res = await fetch(`/sales/api/item_by_barcode?barcode=${encodeURIComponent(raw)}`);
+                const result = await res.json();
+                if (!res.ok) {
+                    return alert(result.message || 'Barcode not found.');
+                }
+
+                const itemCode = result.item_code;
+                if (!itemCode) return alert('Barcode item mapping is invalid.');
+
+                if (result.item_name) {
+                    itemCodeToName[itemCode] = result.item_name;
+                }
+
+                const itemSelect = document.getElementById('item_input');
+                const hasOption = Array.from(itemSelect.options).some(opt => opt.value === itemCode);
+                if (!hasOption) {
+                    const label = `${itemCode} - ${result.item_name || itemCode}`;
+                    itemSelect.insertAdjacentHTML('beforeend', `<option value="${itemCode}">${label}</option>`);
+                }
+
+                itemSelect.value = itemCode;
+                await addScannedItem(itemCode);
+                barcodeInput.value = '';
+            } catch (err) {
+                alert(`Barcode scan failed: ${err.message}`);
+            }
         }
 
         function openItemModal() {

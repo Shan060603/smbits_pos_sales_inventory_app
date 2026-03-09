@@ -100,6 +100,21 @@
                 <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 min-h-[550px] flex flex-col">
                     
                     <div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100 flex flex-wrap gap-3 items-end mb-6">
+                        <div class="w-full md:w-72">
+                            <label class="block text-[10px] font-bold text-indigo-500 uppercase mb-1 ml-1">Scan Barcode</label>
+                            <div class="flex gap-2">
+                                <input
+                                    type="text"
+                                    id="barcode_input"
+                                    onkeydown="handleBarcodeKeydown(event)"
+                                    class="w-full border border-indigo-200 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-indigo-400 text-sm bg-white"
+                                    placeholder="Scan barcode then press Enter"
+                                >
+                                <button type="button" onclick="scanBarcode()" class="bg-indigo-700 text-white font-bold px-3 py-2 rounded-lg hover:bg-indigo-800 text-xs uppercase">
+                                    Scan
+                                </button>
+                            </div>
+                        </div>
                         <div class="flex-grow min-w-[200px]">
                             <div class="flex justify-between items-center mb-1">
                                 <label class="text-[10px] font-bold text-indigo-500 uppercase ml-1">Find Material / Product</label>
@@ -194,6 +209,9 @@
         let allSuppliers = [];
         let allItems = [];
         let itemCodeToName = {};
+        let scannerBuffer = '';
+        let scannerLastTs = 0;
+        let scannerListenerAttached = false;
 
         async function initApp() {
             updateClock();
@@ -226,6 +244,7 @@
                 }).join('');
 
                 filterWarehouses();
+                attachGlobalScannerListener();
             } catch (err) { console.error("Init Error:", err); }
         }
 
@@ -247,6 +266,41 @@
             const el = document.getElementById(id);
             const placeholderHtml = placeholder ? `<option value="">${placeholder}</option>` : '';
             el.innerHTML = placeholderHtml + list.map(v => `<option value="${v}">${v}</option>`).join('');
+        }
+
+        function handleBarcodeKeydown(event) {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            scanBarcode();
+        }
+
+        function attachGlobalScannerListener() {
+            if (scannerListenerAttached) return;
+            scannerListenerAttached = true;
+            document.addEventListener('keydown', onGlobalScannerKeydown, true);
+        }
+
+        function onGlobalScannerKeydown(event) {
+            if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+            const now = Date.now();
+            if ((now - scannerLastTs) > 150) scannerBuffer = '';
+            scannerLastTs = now;
+
+            if (event.key === 'Enter') {
+                const code = (scannerBuffer || '').trim();
+                scannerBuffer = '';
+                if (code.length >= 4) {
+                    event.preventDefault();
+                    scanBarcode(code);
+                }
+                return;
+            }
+
+            if (event.key.length === 1) {
+                scannerBuffer += event.key;
+                const input = document.getElementById('barcode_input');
+                if (input) input.value = scannerBuffer;
+            }
         }
 
         async function fetchPriceAndStock() {
@@ -276,6 +330,53 @@
             const nextQty = Number(cart[index].qty || 0) + delta;
             cart[index].qty = nextQty < 1 ? 1 : nextQty;
             renderCart();
+        }
+
+        async function addScannedItem(itemCode) {
+            const warehouse = document.getElementById('warehouse').value;
+            const existingIndex = cart.findIndex(row => row.item_code === itemCode && row.warehouse === warehouse);
+            if (existingIndex >= 0) {
+                cart[existingIndex].qty = Number(cart[existingIndex].qty || 0) + 1;
+                renderCart();
+                return;
+            }
+
+            document.getElementById('item_input').value = itemCode;
+            await fetchPriceAndStock();
+            const rate = parseFloat(document.getElementById('rate').value) || 0;
+            cart.push({ item_code: itemCode, qty: 1, rate, warehouse });
+            renderCart();
+            document.getElementById('item_input').value = '';
+            document.getElementById('qty').value = 1;
+            document.getElementById('rate').value = '';
+        }
+
+        async function scanBarcode(barcodeValue = null) {
+            const input = document.getElementById('barcode_input');
+            const raw = (barcodeValue || input.value || '').trim();
+            if (!raw) return;
+
+            try {
+                const res = await fetch(`/purchases/api/item_by_barcode?barcode=${encodeURIComponent(raw)}`);
+                const result = await res.json();
+                if (!res.ok) return alert(result.message || 'Barcode not found.');
+
+                const itemCode = result.item_code;
+                if (!itemCode) return alert('Barcode item mapping is invalid.');
+                if (result.item_name) itemCodeToName[itemCode] = result.item_name;
+
+                const itemSelect = document.getElementById('item_input');
+                const hasOption = Array.from(itemSelect.options).some(opt => opt.value === itemCode);
+                if (!hasOption) {
+                    const label = `${itemCode} - ${result.item_name || itemCode}`;
+                    itemSelect.insertAdjacentHTML('beforeend', `<option value="${itemCode}">${label}</option>`);
+                }
+
+                await addScannedItem(itemCode);
+                input.value = '';
+            } catch (err) {
+                alert(`Barcode scan failed: ${err.message}`);
+            }
         }
 
         function addToCart() {

@@ -205,6 +205,7 @@ def _run_job(job_type, payload, context):
             is_stock_item=bool(payload.get("is_stock_item", True)),
             sales_price=float(payload.get("sales_price") or 0),
             purchase_price=float(payload.get("purchase_price") or 0),
+            barcodes=payload.get("barcodes") or [],
         )
         if isinstance(result, dict) and result.get("ok"):
             return True, None

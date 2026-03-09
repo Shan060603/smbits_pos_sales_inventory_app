@@ -47,7 +47,7 @@
   </div>
 
   <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-    <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+    <div class="grid grid-cols-1 md:grid-cols-6 gap-3">
       <button onclick="openItemModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">
         <i class="fa-solid fa-plus mr-1"></i>Add Item
       </button>
@@ -58,6 +58,10 @@
       </select>
       <select id="filter-group" onchange="resetPageAndRender()" class="w-full border border-slate-200 rounded-lg p-2 text-sm bg-slate-50 text-slate-700">
         <option value="">All Item Groups</option>
+      </select>
+      <select id="sort-name" onchange="resetPageAndRender()" class="w-full border border-slate-200 rounded-lg p-2 text-sm bg-slate-50 text-slate-700">
+        <option value="asc">Name (A-Z)</option>
+        <option value="desc">Name (Z-A)</option>
       </select>
       <div class="text-right text-xs font-bold text-slate-500 uppercase tracking-widest pt-2 md:text-left">
         Total Items: <span id="count">0</span>
@@ -101,8 +105,8 @@
   <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-6 border border-slate-200">
     <div class="flex justify-between items-center mb-4">
       <div>
-        <h3 class="text-lg font-black text-slate-800">New Item</h3>
-        <p class="text-[11px] text-slate-500">Create item similar to ERPNext item setup.</p>
+        <h3 id="item-modal-title" class="text-lg font-black text-slate-800">New Item</h3>
+        <p id="item-modal-subtitle" class="text-[11px] text-slate-500">Create item similar to ERPNext item setup.</p>
       </div>
       <button type="button" onclick="closeItemModal()" class="text-slate-500 hover:text-slate-700 text-xl">×</button>
     </div>
@@ -115,6 +119,14 @@
       <div>
         <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Item Name</label>
         <input type="text" id="new_item_name" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="e.g. Product Name">
+      </div>
+      <div class="md:col-span-2">
+        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Barcodes (Optional)</label>
+        <div class="flex gap-2">
+          <input type="text" id="new_item_barcode_input" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="Scan or type barcode">
+          <button type="button" onclick="addDraftBarcode()" class="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase">Add</button>
+        </div>
+        <div id="new_item_barcodes_list" class="mt-2 flex flex-wrap gap-2"></div>
       </div>
       <div>
         <div class="flex items-center justify-between mb-1">
@@ -144,14 +156,14 @@
       </div>
     </div>
 
-    <label class="mt-4 inline-flex items-center gap-2 text-sm text-slate-700">
+    <label id="new-item-stock-label" class="mt-4 inline-flex items-center gap-2 text-sm text-slate-700">
       <input id="new_item_is_stock" type="checkbox" checked class="w-4 h-4 accent-emerald-600">
       Is Stock Item
     </label>
 
     <div class="mt-5 flex gap-3 justify-end">
       <button type="button" onclick="closeItemModal()" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-600 text-sm font-bold">Cancel</button>
-      <button type="button" onclick="submitItem()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold">Create Item</button>
+      <button id="item-modal-submit-btn" type="button" onclick="submitItem()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold">Create Item</button>
     </div>
   </div>
 </div>
@@ -178,6 +190,9 @@ let allItemGroups = []
 let currentPage = 0
 const pageSize = 20
 let quickCreateType = ''
+let editingItemCode = null
+let draftBarcodes = []
+let editingOriginal = null
 
 async function initPage() {
   await loadItems()
@@ -207,11 +222,13 @@ function resetPageAndRender() {
   renderTable()
 }
 
-function changePage(direction) {
+function getFilteredRows() {
   const q = (document.getElementById('search').value || '').toLowerCase()
   const selectedUom = (document.getElementById('filter-uom').value || '').trim()
   const selectedGroup = (document.getElementById('filter-group').value || '').trim()
-  const totalFiltered = rows.filter(r => {
+  const sortName = (document.getElementById('sort-name').value || 'asc').trim()
+
+  const filtered = rows.filter(r => {
     const name = (r.item_name || '').toLowerCase()
     const uom = (r.stock_uom || '').trim()
     const group = (r.item_group || '').trim()
@@ -219,7 +236,19 @@ function changePage(direction) {
     const matchesUom = !selectedUom || uom === selectedUom
     const matchesGroup = !selectedGroup || group === selectedGroup
     return matchesName && matchesUom && matchesGroup
-  }).length
+  })
+
+  filtered.sort((a, b) => {
+    const an = (a.item_name || '').toLowerCase()
+    const bn = (b.item_name || '').toLowerCase()
+    const cmp = an.localeCompare(bn)
+    return sortName === 'desc' ? -cmp : cmp
+  })
+  return filtered
+}
+
+function changePage(direction) {
+  const totalFiltered = getFilteredRows().length
   const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize))
   currentPage = Math.min(Math.max(currentPage + direction, 0), totalPages - 1)
   renderTable()
@@ -244,6 +273,21 @@ function populateFilters() {
 }
 
 function openItemModal() {
+  editingItemCode = null
+  editingOriginal = null
+  draftBarcodes = []
+  renderDraftBarcodes()
+  document.getElementById('item-modal-title').innerText = 'New Item'
+  document.getElementById('item-modal-subtitle').innerText = 'Create item similar to ERPNext item setup.'
+  document.getElementById('item-modal-submit-btn').innerText = 'Create Item'
+  document.getElementById('new-item-stock-label').classList.remove('hidden')
+  document.getElementById('new_item_code').readOnly = false
+  document.getElementById('new_item_code').value = ''
+  document.getElementById('new_item_name').value = ''
+  document.getElementById('new_item_sales_price').value = ''
+  document.getElementById('new_item_purchase_price').value = ''
+  document.getElementById('new_item_is_stock').checked = true
+  document.getElementById('new_item_barcode_input').value = ''
   document.getElementById('item-modal').classList.remove('hidden')
   document.getElementById('item-modal').classList.add('flex')
 }
@@ -251,6 +295,71 @@ function openItemModal() {
 function closeItemModal() {
   document.getElementById('item-modal').classList.remove('flex')
   document.getElementById('item-modal').classList.add('hidden')
+}
+
+function openEditItemModal(itemCode) {
+  const decoded = decodeURIComponent(itemCode || '')
+  const row = rows.find(r => (r.item_code || '') === decoded)
+  if (!row) return
+  editingItemCode = decoded
+  editingOriginal = {
+    item_name: row.item_name || '',
+    item_group: row.item_group || '',
+    stock_uom: row.stock_uom || '',
+    sales_price: Number(row.selling_price || 0),
+    purchase_price: Number(row.valuation_rate || 0),
+    barcodes: Array.isArray(row.barcodes) ? [...new Set(row.barcodes.filter(Boolean))] : []
+  }
+  draftBarcodes = Array.isArray(row.barcodes) ? [...new Set(row.barcodes.filter(Boolean))] : []
+  renderDraftBarcodes()
+
+  document.getElementById('item-modal-title').innerText = 'Edit Item'
+  document.getElementById('item-modal-subtitle').innerText = 'Update item details and barcodes.'
+  document.getElementById('item-modal-submit-btn').innerText = 'Save Changes'
+  document.getElementById('new-item-stock-label').classList.add('hidden')
+  document.getElementById('new_item_code').readOnly = true
+  document.getElementById('new_item_code').value = row.item_code || ''
+  document.getElementById('new_item_name').value = row.item_name || ''
+  document.getElementById('new_item_group').value = row.item_group || ''
+  document.getElementById('new_item_uom').value = row.stock_uom || ''
+  document.getElementById('new_item_sales_price').value = Number(row.selling_price || 0)
+  document.getElementById('new_item_purchase_price').value = Number(row.valuation_rate || 0)
+  document.getElementById('new_item_barcode_input').value = ''
+
+  document.getElementById('item-modal').classList.remove('hidden')
+  document.getElementById('item-modal').classList.add('flex')
+}
+
+function renderDraftBarcodes() {
+  const el = document.getElementById('new_item_barcodes_list')
+  if (!el) return
+  if (!draftBarcodes.length) {
+    el.innerHTML = '<span class="text-[10px] text-slate-400">No barcodes added.</span>'
+    return
+  }
+  el.innerHTML = draftBarcodes.map((code, idx) => `
+    <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-700">
+      ${code}
+      <button type="button" onclick="removeDraftBarcode(${idx})" class="text-emerald-700 hover:text-red-600">×</button>
+    </span>
+  `).join('')
+}
+
+function addDraftBarcode() {
+  const input = document.getElementById('new_item_barcode_input')
+  const value = (input.value || '').trim()
+  if (!value) return
+  const newCodes = value.split(/[\n,\s]+/).map(v => v.trim()).filter(Boolean)
+  for (const code of newCodes) {
+    if (!draftBarcodes.includes(code)) draftBarcodes.push(code)
+  }
+  input.value = ''
+  renderDraftBarcodes()
+}
+
+function removeDraftBarcode(index) {
+  draftBarcodes.splice(index, 1)
+  renderDraftBarcodes()
 }
 
 function openQuickCreateModal(type) {
@@ -286,7 +395,8 @@ async function submitItem() {
     stock_uom: document.getElementById('new_item_uom').value || '',
     is_stock_item: document.getElementById('new_item_is_stock').checked,
     sales_price: Number(document.getElementById('new_item_sales_price').value || 0),
-    purchase_price: Number(document.getElementById('new_item_purchase_price').value || 0)
+    purchase_price: Number(document.getElementById('new_item_purchase_price').value || 0),
+    barcodes: [...draftBarcodes]
   }
 
   if (!payload.item_code || !payload.stock_uom || !payload.item_group) {
@@ -294,23 +404,41 @@ async function submitItem() {
     return
   }
 
-  const res = await fetch('/inventory/api/items', {
-    method: 'POST',
+  const isEdit = Boolean(editingItemCode)
+  const endpoint = isEdit ? `/inventory/api/items/${encodeURIComponent(editingItemCode)}` : '/inventory/api/items'
+  const method = isEdit ? 'PUT' : 'POST'
+  let requestPayload = payload
+  if (isEdit) {
+    requestPayload = {}
+    const orig = editingOriginal || {}
+    if (payload.item_name !== (orig.item_name || '')) requestPayload.item_name = payload.item_name
+    if (payload.item_group !== (orig.item_group || '')) requestPayload.item_group = payload.item_group
+    if (payload.stock_uom !== (orig.stock_uom || '')) requestPayload.stock_uom = payload.stock_uom
+    if (Number(payload.sales_price || 0) !== Number(orig.sales_price || 0)) requestPayload.sales_price = payload.sales_price
+    if (Number(payload.purchase_price || 0) !== Number(orig.purchase_price || 0)) requestPayload.purchase_price = payload.purchase_price
+
+    const newBars = [...new Set(payload.barcodes || [])].sort()
+    const oldBars = [...new Set(orig.barcodes || [])].sort()
+    if (JSON.stringify(newBars) !== JSON.stringify(oldBars)) requestPayload.barcodes = payload.barcodes
+
+    if (!Object.keys(requestPayload).length) {
+      closeItemModal()
+      return
+    }
+  }
+
+  const res = await fetch(endpoint, {
+    method,
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload)
+    body: JSON.stringify(requestPayload)
   })
   const result = await res.json()
   if (!res.ok) {
-    alert(result.message || 'Failed to create item.')
+    alert(result.message || `Failed to ${isEdit ? 'update' : 'create'} item.`)
     return
   }
 
   closeItemModal()
-  document.getElementById('new_item_code').value = ''
-  document.getElementById('new_item_name').value = ''
-  document.getElementById('new_item_sales_price').value = ''
-  document.getElementById('new_item_purchase_price').value = ''
-  document.getElementById('new_item_is_stock').checked = true
   await loadItems()
 }
 
@@ -360,19 +488,8 @@ async function submitQuickCreate() {
 }
 
 function renderTable() {
-  const q = (document.getElementById('search').value || '').toLowerCase()
-  const selectedUom = (document.getElementById('filter-uom').value || '').trim()
-  const selectedGroup = (document.getElementById('filter-group').value || '').trim()
   const body = document.getElementById('body')
-  const filtered = rows.filter(r => {
-    const name = (r.item_name || '').toLowerCase()
-    const uom = (r.stock_uom || '').trim()
-    const group = (r.item_group || '').trim()
-    const matchesName = name.includes(q)
-    const matchesUom = !selectedUom || uom === selectedUom
-    const matchesGroup = !selectedGroup || group === selectedGroup
-    return matchesName && matchesUom && matchesGroup
-  })
+  const filtered = getFilteredRows()
   document.getElementById('count').innerText = filtered.length
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
@@ -394,6 +511,8 @@ function renderTable() {
       <td class="px-5 py-4">
         <div class="text-[10px] font-mono text-slate-500">ID: ${r.item_code || '-'}</div>
         <div class="text-sm font-bold text-slate-800">Name: ${r.item_name || '-'}</div>
+        <div class="text-[10px] text-slate-500">Barcode: ${r.barcode_display || '-'}</div>
+        <button type="button" onclick="openEditItemModal('${encodeURIComponent(r.item_code || '')}')" class="mt-1 text-[10px] font-bold uppercase text-emerald-600 hover:text-emerald-700">Edit Details</button>
       </td>
       <td class="px-5 py-4 text-sm text-slate-700">${r.stock_uom || '-'}</td>
       <td class="px-5 py-4 text-sm text-slate-700">${r.item_group || '-'}</td>

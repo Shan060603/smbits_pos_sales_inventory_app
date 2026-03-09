@@ -103,6 +103,106 @@ class SMBITSBridge:
             print(f"❌ Stock Fetch Error: {str(e)}")
             return 0.0
 
+    def find_item_by_barcode(self, barcode):
+        """Resolve barcode to item code via Item Barcode (child table) with fallback to Item.barcode."""
+        code = (barcode or "").strip()
+        if not code:
+            return {"ok": False, "error": "Barcode is required."}
+
+        candidates = []
+        for c in (code, code.upper(), code.lower()):
+            c = (c or "").strip()
+            if c and c not in candidates:
+                candidates.append(c)
+
+        try:
+            # Preferred path for ERPNext child table lookup.
+            endpoint = f"{self.url}/api/method/frappe.client.get_list"
+            params = {
+                "doctype": "Item Barcode",
+                "fields": json.dumps(["parent", "barcode"]),
+                "filters": json.dumps([
+                    ["barcode", "in", candidates],
+                    ["parenttype", "=", "Item"]
+                ]),
+                "limit_page_length": 1
+            }
+            response = requests.get(endpoint, headers=self.headers, params=params)
+            if response.status_code == 200:
+                rows = response.json().get("message", [])
+                if rows:
+                    item_code = rows[0].get("parent")
+                    if item_code:
+                        return {"ok": True, "item_code": item_code}
+        except Exception:
+            pass
+
+        try:
+            # Standard ERPNext source: Item Barcode child table where parent = Item code.
+            endpoint = f"{self.url}/api/resource/Item Barcode"
+            params = {
+                "fields": json.dumps(["parent", "barcode"]),
+                "filters": json.dumps([
+                    ["barcode", "in", candidates],
+                    ["parenttype", "=", "Item"]
+                ]),
+                "limit_page_length": 1
+            }
+            response = requests.get(endpoint, headers=self.headers, params=params)
+            if response.status_code == 200:
+                rows = response.json().get("data", [])
+                if rows:
+                    item_code = rows[0].get("parent")
+                    if item_code:
+                        return {"ok": True, "item_code": item_code}
+        except Exception:
+            pass
+
+        try:
+            # Fallback for setups with custom barcode field directly on Item.
+            endpoint = f"{self.url}/api/resource/Item"
+            params = {
+                "fields": json.dumps(["name", "item_name"]),
+                "filters": json.dumps([["barcode", "in", candidates]]),
+                "limit_page_length": 1
+            }
+            response = requests.get(endpoint, headers=self.headers, params=params)
+            if response.status_code == 200:
+                rows = response.json().get("data", [])
+                if rows:
+                    row = rows[0]
+                    return {
+                        "ok": True,
+                        "item_code": row.get("name"),
+                        "item_name": row.get("item_name") or row.get("name")
+                    }
+        except Exception:
+            pass
+
+        try:
+            # Additional fallback: child-table filter through Item query.
+            endpoint = f"{self.url}/api/method/frappe.client.get_list"
+            params = {
+                "doctype": "Item",
+                "fields": json.dumps(["name", "item_name"]),
+                "filters": json.dumps([["Item Barcode", "barcode", "in", candidates]]),
+                "limit_page_length": 1
+            }
+            response = requests.get(endpoint, headers=self.headers, params=params)
+            if response.status_code == 200:
+                rows = response.json().get("message", [])
+                if rows:
+                    row = rows[0]
+                    return {
+                        "ok": True,
+                        "item_code": row.get("name"),
+                        "item_name": row.get("item_name") or row.get("name")
+                    }
+        except Exception:
+            pass
+
+        return {"ok": False, "error": "Barcode not found."}
+
     def send_sales_invoice(
         self,
         customer,

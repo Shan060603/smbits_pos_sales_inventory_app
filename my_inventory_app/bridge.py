@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+from urllib.parse import quote
 from flask import Blueprint, render_template, request, jsonify, session
 from dotenv import load_dotenv
 from offline_outbox import save_snapshot, load_snapshot, enqueue_job, is_transient_error
@@ -335,7 +336,36 @@ class SMBITSInventoryBridge:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
-    def create_item(self, item_code, item_name, stock_uom, item_group=None, is_stock_item=True, sales_price=0, purchase_price=0):
+    def add_item_price_history(self, item_code, price_list, rate):
+        """
+        Append a new Item Price row for historical tracking (no overwrite).
+        """
+        try:
+            create_payload = {
+                "item_code": item_code,
+                "price_list": price_list,
+                "price_list_rate": float(rate)
+            }
+            endpoint = f"{self.url}/api/resource/Item Price"
+            res = self.session.post(endpoint, json=create_payload, timeout=25)
+            body = res.json() if res.text else {}
+            if res.ok and isinstance(body.get("data"), dict):
+                return {"ok": True, "data": body.get("data"), "mode": "appended"}
+
+            # Fallback: if server blocks duplicate combinations, update current instead of failing.
+            fallback = self.upsert_item_price(item_code, price_list, rate)
+            if fallback.get("ok"):
+                fallback["mode"] = "updated_existing"
+            return fallback
+        except Exception as e:
+            # Fallback to upsert on transport/validation edge cases.
+            fallback = self.upsert_item_price(item_code, price_list, rate)
+            if fallback.get("ok"):
+                fallback["mode"] = "updated_existing"
+                return fallback
+            return {"ok": False, "error": str(e)}
+
+    def create_item(self, item_code, item_name, stock_uom, item_group=None, is_stock_item=True, sales_price=0, purchase_price=0, barcodes=None):
         """Create Item and optionally seed Standard Buying/Selling prices."""
         item_code = (item_code or "").strip()
         item_name = (item_name or item_code).strip()
@@ -355,6 +385,13 @@ class SMBITSInventoryBridge:
             "stock_uom": stock_uom,
             "is_stock_item": 1 if is_stock_item else 0
         }
+        cleaned_barcodes = []
+        for raw in (barcodes or []):
+            code = (raw or "").strip()
+            if code and code not in cleaned_barcodes:
+                cleaned_barcodes.append(code)
+        if cleaned_barcodes:
+            payload["barcodes"] = [{"barcode": b} for b in cleaned_barcodes]
         endpoint = f"{self.url}/api/resource/Item"
 
         try:
@@ -375,6 +412,82 @@ class SMBITSInventoryBridge:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    def update_item(self, item_code, item_name=None, stock_uom=None, item_group=None, disabled=None, barcodes=None, sales_price=None, purchase_price=None):
+        """Update item details and barcode child rows."""
+        code = (item_code or "").strip()
+        if not code:
+            return {"ok": False, "error": "Item code is required."}
+        try:
+            endpoint = f"{self.url}/api/resource/Item/{quote(code, safe='')}"
+
+            # Step 1: update non-UOM fields directly so they are not blocked by stock_uom validation.
+            basic_payload = {}
+            if item_name is not None:
+                basic_payload["item_name"] = (item_name or "").strip() or code
+            if item_group is not None:
+                basic_payload["item_group"] = (item_group or "").strip()
+            if disabled is not None:
+                basic_payload["disabled"] = 1 if bool(disabled) else 0
+            if isinstance(barcodes, list):
+                cleaned = []
+                for raw in barcodes:
+                    b = (raw or "").strip()
+                    if b and b not in cleaned:
+                        cleaned.append(b)
+                basic_payload["barcodes"] = [{"doctype": "Item Barcode", "barcode": b} for b in cleaned]
+
+            if basic_payload:
+                basic_res = self.session.put(endpoint, json=basic_payload, timeout=25)
+                basic_body = basic_res.json() if basic_res.text else {}
+                if (not basic_res.ok) or (not isinstance(basic_body.get("data"), dict)):
+                    return {"ok": False, "error": self._extract_error(basic_body)}
+
+            # Step 2: update stock_uom with full-doc save while preserving existing UOM rows.
+            stock_uom_clean = (stock_uom or "").strip() if stock_uom is not None else ""
+            if stock_uom is not None and stock_uom_clean:
+                get_res = self.session.get(endpoint, timeout=25)
+                get_body = get_res.json() if get_res.text else {}
+                doc = get_body.get("data") if isinstance(get_body, dict) else None
+                if not get_res.ok or not isinstance(doc, dict):
+                    return {"ok": False, "error": self._extract_error(get_body) or "Failed to load Item document."}
+
+                current_stock_uom = (doc.get("stock_uom") or "").strip()
+                if current_stock_uom.lower() != stock_uom_clean.lower():
+                    uoms = [row for row in (doc.get("uoms") or []) if isinstance(row, dict)]
+                    has_stock_uom = any((row.get("uom") or "").strip().lower() == stock_uom_clean.lower() for row in uoms)
+                    if not has_stock_uom:
+                        uoms.append({
+                            "doctype": "UOM Conversion Detail",
+                            "uom": stock_uom_clean,
+                            "conversion_factor": 1
+                        })
+                    doc["uoms"] = uoms
+                    doc["stock_uom"] = stock_uom_clean
+
+                    save_endpoint = f"{self.url}/api/method/frappe.client.save"
+                    save_res = self.session.post(save_endpoint, json={"doc": doc}, timeout=25)
+                    save_body = save_res.json() if save_res.text else {}
+                    saved_doc = save_body.get("message") if isinstance(save_body, dict) and isinstance(save_body.get("message"), dict) else None
+                    if (not save_res.ok) or (not isinstance(saved_doc, dict)):
+                        return {"ok": False, "error": self._extract_error(save_body)}
+
+            # Fetch latest doc for response
+            final_res = self.session.get(endpoint, timeout=25)
+            final_body = final_res.json() if final_res.text else {}
+            updated_doc = final_body.get("data") if isinstance(final_body, dict) else None
+            if (not final_res.ok) or (not isinstance(updated_doc, dict)):
+                return {"ok": False, "error": self._extract_error(final_body) or "Failed to fetch updated item."}
+
+            if updated_doc:
+                if sales_price is not None:
+                    self.add_item_price_history(code, "Standard Selling", float(sales_price or 0))
+                if purchase_price is not None:
+                    self.add_item_price_history(code, "Standard Buying", float(purchase_price or 0))
+                return {"ok": True, "data": updated_doc}
+            return {"ok": False, "error": "Failed to update item."}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     def get_item_list(self):
         """Return item master list with buying/selling rates."""
         items = self.get_resource_list(
@@ -384,13 +497,67 @@ class SMBITSInventoryBridge:
             page_length=4000
         )
 
+        barcode_rows = []
+        barcode_forbidden = False
+        try:
+            endpoint = f"{self.url}/api/method/frappe.client.get_list"
+            params = {
+                "doctype": "Item Barcode",
+                "fields": json.dumps(["parent", "barcode", "parenttype"]),
+                "filters": json.dumps([["parenttype", "=", "Item"]]),
+                "limit_page_length": 10000
+            }
+            res = self.session.get(endpoint, params=params, timeout=25)
+            if res.ok:
+                barcode_rows = res.json().get("message", []) or []
+            elif res.status_code in (401, 403):
+                barcode_forbidden = True
+        except Exception as e:
+            print(f"❌ SMBITS Barcode Fetch Error [method]: {e}")
+
+        if not barcode_rows and not barcode_forbidden:
+            barcode_rows = self.get_resource_list(
+                "Item Barcode",
+                filters=[["parenttype", "=", "Item"]],
+                fields=["parent", "barcode", "parenttype"],
+                start=0,
+                page_length=10000
+            )
+
+        barcode_map = {}
+        for row in barcode_rows:
+            parent = (row.get("parent") or "").strip()
+            barcode = (row.get("barcode") or "").strip()
+            parenttype = (row.get("parenttype") or "Item").strip()
+            if parenttype and parenttype != "Item":
+                continue
+            if not parent or not barcode:
+                continue
+            barcode_map.setdefault(parent, [])
+            if barcode not in barcode_map[parent]:
+                barcode_map[parent].append(barcode)
+
+        # Fallback: if child doctype API is restricted (403), read barcodes from Item docs.
+        missing_codes = [it.get("name") for it in items if it.get("name") and not barcode_map.get(it.get("name"))]
+        if missing_codes:
+            fallback_map = self._get_item_barcodes_from_item_docs(missing_codes, max_items=500)
+            for code, bars in fallback_map.items():
+                barcode_map.setdefault(code, [])
+                for b in bars:
+                    if b not in barcode_map[code]:
+                        barcode_map[code].append(b)
+
         rows = []
         for it in items:
+            item_code = it.get("name")
+            item_barcodes = barcode_map.get(item_code, [])
             rows.append({
-                "item_code": it.get("name"),
+                "item_code": item_code,
                 "item_name": it.get("item_name") or "",
                 "stock_uom": it.get("stock_uom") or "",
                 "item_group": it.get("item_group") or "",
+                "barcodes": item_barcodes,
+                "barcode_display": ", ".join(item_barcodes),
                 "disabled": int(it.get("disabled") or 0),
                 "valuation_rate": 0,
                 "selling_price": 0
@@ -400,10 +567,64 @@ class SMBITSInventoryBridge:
         rows.sort(key=lambda r: ((r.get("item_name") or "").lower(), (r.get("item_code") or "").lower()))
         return rows
 
+    def _get_item_barcodes_from_item_docs(self, item_codes, max_items=500):
+        """
+        Read barcodes from each Item document's child table.
+        This works even when direct Item Barcode doctype API is restricted.
+        """
+        result = {}
+        for code in (item_codes or [])[:max_items]:
+            item_code = (code or "").strip()
+            if not item_code:
+                continue
+            try:
+                endpoint = f"{self.url}/api/resource/Item/{quote(item_code, safe='')}"
+                res = self.session.get(endpoint, timeout=20)
+                if not res.ok:
+                    continue
+                body = res.json() if res.text else {}
+                doc = body.get("data") if isinstance(body, dict) else None
+                if not isinstance(doc, dict):
+                    continue
+
+                bars = []
+                for row in (doc.get("barcodes") or []):
+                    barcode = (row.get("barcode") or "").strip() if isinstance(row, dict) else ""
+                    if barcode and barcode not in bars:
+                        bars.append(barcode)
+
+                # Some customizations store a direct barcode field on Item.
+                top_barcode = (doc.get("barcode") or "").strip()
+                if top_barcode and top_barcode not in bars:
+                    bars.append(top_barcode)
+
+                if bars:
+                    result[item_code] = bars
+            except Exception:
+                continue
+        return result
+
     @staticmethod
     def _extract_error(payload):
         if not isinstance(payload, dict):
             return str(payload)
+        server_messages = payload.get("_server_messages")
+        if isinstance(server_messages, str) and server_messages:
+            try:
+                parsed = json.loads(server_messages)
+                if isinstance(parsed, list) and parsed:
+                    first = parsed[0]
+                    if isinstance(first, str):
+                        try:
+                            first_obj = json.loads(first)
+                            if isinstance(first_obj, dict):
+                                msg = first_obj.get("message")
+                                if msg:
+                                    return str(msg)
+                        except Exception:
+                            return first
+            except Exception:
+                pass
         msg = payload.get("message")
         if isinstance(msg, dict):
             return msg.get("message") or str(msg)
@@ -592,6 +813,11 @@ def item_list_filters():
 def create_item():
     inventory_engine = get_inventory_engine()
     data = request.json or {}
+    barcodes = data.get("barcodes") or []
+    if isinstance(barcodes, str):
+        barcodes = [barcodes]
+    if not isinstance(barcodes, list):
+        barcodes = []
     result = inventory_engine.create_item(
         item_code=data.get("item_code"),
         item_name=data.get("item_name"),
@@ -599,7 +825,8 @@ def create_item():
         item_group=data.get("item_group"),
         is_stock_item=bool(data.get("is_stock_item", True)),
         sales_price=float(data.get("sales_price") or 0),
-        purchase_price=float(data.get("purchase_price") or 0)
+        purchase_price=float(data.get("purchase_price") or 0),
+        barcodes=barcodes
     )
     if result.get("ok"):
         return jsonify({"status": "success", "item": result.get("data")})
@@ -616,6 +843,7 @@ def create_item():
                 "is_stock_item": bool(data.get("is_stock_item", True)),
                 "sales_price": float(data.get("sales_price") or 0),
                 "purchase_price": float(data.get("purchase_price") or 0),
+                "barcodes": barcodes,
             },
             context={
                 "erp_url": session.get("erp_url"),
@@ -629,6 +857,32 @@ def create_item():
             "message": f"ERPNext unreachable. Item saved offline as queue #{queue_id}. It will auto-sync when connection returns."
         })
     return jsonify({"status": "error", "message": error_msg}), 400
+
+
+@inventory_bp.route("/api/items/<path:item_code>", methods=["PUT"])
+def update_item(item_code):
+    inventory_engine = get_inventory_engine()
+    item_code = (item_code or "").strip()
+    data = request.json or {}
+    barcodes = data.get("barcodes")
+    if isinstance(barcodes, str):
+        barcodes = [barcodes]
+    if barcodes is not None and not isinstance(barcodes, list):
+        barcodes = []
+
+    result = inventory_engine.update_item(
+        item_code=item_code,
+        item_name=data.get("item_name"),
+        stock_uom=data.get("stock_uom"),
+        item_group=data.get("item_group"),
+        disabled=data.get("disabled"),
+        barcodes=barcodes,
+        sales_price=data.get("sales_price"),
+        purchase_price=data.get("purchase_price")
+    )
+    if result.get("ok"):
+        return jsonify({"status": "success", "item": result.get("data")})
+    return jsonify({"status": "error", "message": result.get("error") or "Failed to update item."}), 400
 
 
 @inventory_bp.route("/api/uoms", methods=["POST"])
@@ -686,7 +940,12 @@ def update_item_rate():
         return jsonify({"status": "error", "message": "Rate must be numeric."}), 400
 
     price_list = "Standard Buying" if price_type == "buying" else "Standard Selling"
-    result = inventory_engine.upsert_item_price(item_code, price_list, rate)
+    result = inventory_engine.add_item_price_history(item_code, price_list, rate)
     if result.get("ok"):
-        return jsonify({"status": "success", "message": f"{price_list} updated.", "rate": rate})
+        mode = result.get("mode") or "appended"
+        if mode == "appended":
+            msg = f"{price_list} added as new history entry."
+        else:
+            msg = f"{price_list} updated on existing entry (ERP duplicate rule)."
+        return jsonify({"status": "success", "message": msg, "rate": rate, "mode": mode})
     return jsonify({"status": "error", "message": result.get("error") or "Failed to save rate."}), 400

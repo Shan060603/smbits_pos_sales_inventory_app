@@ -88,6 +88,61 @@ class SMBITSPurchaseBridge:
             print(f"❌ Purchase Price Fetch Error: {str(e)}")
             return 0.0
 
+    def find_item_by_barcode(self, barcode):
+        """Resolve barcode to item code for purchasing scanner flow."""
+        code = (barcode or "").strip()
+        if not code:
+            return {"ok": False, "error": "Barcode is required."}
+
+        candidates = []
+        for c in (code, code.upper(), code.lower()):
+            c = (c or "").strip()
+            if c and c not in candidates:
+                candidates.append(c)
+
+        try:
+            endpoint = f"{self.url}/api/method/frappe.client.get_list"
+            params = {
+                "doctype": "Item Barcode",
+                "fields": json.dumps(["parent", "barcode"]),
+                "filters": json.dumps([
+                    ["barcode", "in", candidates],
+                    ["parenttype", "=", "Item"]
+                ]),
+                "limit_page_length": 1
+            }
+            response = requests.get(endpoint, headers=self.headers, params=params)
+            if response.status_code == 200:
+                rows = response.json().get("message", [])
+                if rows:
+                    item_code = rows[0].get("parent")
+                    if item_code:
+                        return {"ok": True, "item_code": item_code}
+        except Exception:
+            pass
+
+        try:
+            endpoint = f"{self.url}/api/resource/Item"
+            params = {
+                "fields": json.dumps(["name", "item_name"]),
+                "filters": json.dumps([["barcode", "in", candidates]]),
+                "limit_page_length": 1
+            }
+            response = requests.get(endpoint, headers=self.headers, params=params)
+            if response.status_code == 200:
+                rows = response.json().get("data", [])
+                if rows:
+                    row = rows[0]
+                    return {
+                        "ok": True,
+                        "item_code": row.get("name"),
+                        "item_name": row.get("item_name") or row.get("name")
+                    }
+        except Exception:
+            pass
+
+        return {"ok": False, "error": "Barcode not found."}
+
     def send_purchase_order(self, supplier, company, items, transaction_date=None, schedule_date=None, submit=True):
         """Creates a Purchase Order and optionally submits it."""
         endpoint = f"{self.url}/api/resource/Purchase Order"
@@ -494,6 +549,23 @@ def get_price(item_code):
     purchase_engine = get_purchase_engine()
     price = purchase_engine.get_purchase_price(item_code)
     return jsonify({"price": price})
+
+@purchase_bp.route('/api/item_by_barcode')
+def get_item_by_barcode():
+    """Resolve barcode to item code for purchasing."""
+    purchase_engine = get_purchase_engine()
+    barcode = (request.args.get('barcode') or '').strip()
+    if not barcode:
+        return jsonify({"status": "error", "message": "Barcode is required."}), 400
+
+    result = purchase_engine.find_item_by_barcode(barcode)
+    if isinstance(result, dict) and result.get("ok") and result.get("item_code"):
+        return jsonify({
+            "status": "success",
+            "item_code": result.get("item_code"),
+            "item_name": result.get("item_name")
+        })
+    return jsonify({"status": "error", "message": result.get("error") or "Barcode not found."}), 404
 
 
 @purchase_bp.route('/api/suppliers', methods=['POST'])

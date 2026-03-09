@@ -269,6 +269,23 @@ def get_stock():
     qty = bridge.get_stock_level(item_code, warehouse)
     return jsonify({"qty": qty})
 
+@sales_bp.route('/api/item_by_barcode')
+def get_item_by_barcode():
+    """Resolve barcode into an item code for POS scanner workflows."""
+    bridge = get_bridge()
+    barcode = (request.args.get('barcode') or '').strip()
+    if not barcode:
+        return jsonify({"status": "error", "message": "Barcode is required."}), 400
+
+    result = bridge.find_item_by_barcode(barcode)
+    if isinstance(result, dict) and result.get("ok") and result.get("item_code"):
+        return jsonify({
+            "status": "success",
+            "item_code": result.get("item_code"),
+            "item_name": result.get("item_name")
+        })
+    return jsonify({"status": "error", "message": result.get("error") or "Barcode not found."}), 404
+
 
 @sales_bp.route('/api/customers', methods=['POST'])
 def create_customer():
