@@ -59,38 +59,76 @@ def _authenticate_erpnext_user(username, password, base_url=None):
         return {"ok": False, "message": "ERP URL is required."}
     try:
         auth_session = requests.Session()
-        login_res = auth_session.post(
-            f"{base_url}/api/method/login",
-            data={"usr": username, "pwd": password},
-            timeout=15
-        )
-        payload = login_res.json() if login_res.text else {}
-        if login_res.status_code != 200:
-            return {"ok": False, "message": payload.get("message") or "Invalid ERPNext credentials."}
 
-        user_res = auth_session.get(
-            f"{base_url}/api/method/frappe.auth.get_logged_user",
-            timeout=15
-        )
-        user_payload = user_res.json() if user_res.text else {}
-        user_id = user_payload.get("message") if user_res.status_code == 200 else username
-        # Robust session extraction: read from session jar and direct response cookies.
-        cookies = auth_session.cookies.get_dict()
-        sid = cookies.get("sid") or login_res.cookies.get("sid")
-        csrf_token = cookies.get("csrf_token") or login_res.cookies.get("csrf_token") or ""
+        def do_login_once():
+            login_res = auth_session.post(
+                f"{base_url}/api/method/login",
+                data={"usr": username, "pwd": password},
+                timeout=15
+            )
+            payload = login_res.json() if login_res.text else {}
+            if login_res.status_code != 200:
+                return {
+                    "ok": False,
+                    "message": payload.get("message") or "Invalid ERPNext credentials.",
+                    "login_res": login_res,
+                    "user_id": username,
+                    "sid": "",
+                    "csrf_token": ""
+                }
 
-        # Last-resort parse from Set-Cookie header.
-        if not sid:
-            set_cookie = login_res.headers.get("Set-Cookie") or ""
-            for part in set_cookie.split(";"):
-                part = part.strip()
-                if part.startswith("sid="):
-                    sid = part.split("=", 1)[1].strip()
-                    break
+            user_res = auth_session.get(
+                f"{base_url}/api/method/frappe.auth.get_logged_user",
+                timeout=15
+            )
+            user_payload = user_res.json() if user_res.text else {}
+            user_id = user_payload.get("message") if user_res.status_code == 200 else username
+            cookies = auth_session.cookies.get_dict()
+            sid = cookies.get("sid") or login_res.cookies.get("sid")
+            csrf_token = cookies.get("csrf_token") or login_res.cookies.get("csrf_token") or ""
 
-        if not sid:
+            if not sid:
+                set_cookie = login_res.headers.get("Set-Cookie") or ""
+                for part in set_cookie.split(";"):
+                    part = part.strip()
+                    if part.startswith("sid="):
+                        sid = part.split("=", 1)[1].strip()
+                        break
+
+            return {
+                "ok": True,
+                "message": "",
+                "login_res": login_res,
+                "user_id": user_id,
+                "sid": sid or "",
+                "csrf_token": csrf_token or ""
+            }
+
+        first = do_login_once()
+        if not first.get("ok"):
+            return {"ok": False, "message": first.get("message") or "Login failed."}
+
+        # Some ERPNext setups return sid late on first handshake.
+        # Retry once transparently so user does not need to click login twice.
+        if not first.get("sid"):
+            second = do_login_once()
+            if second.get("ok") and second.get("sid"):
+                return {
+                    "ok": True,
+                    "user": second.get("user_id") or username,
+                    "sid": second.get("sid"),
+                    "csrf_token": second.get("csrf_token") or ""
+                }
+
+        if not first.get("sid"):
             return {"ok": False, "message": "ERPNext login succeeded but no session ID was returned."}
-        return {"ok": True, "user": user_id or username, "sid": sid, "csrf_token": csrf_token}
+
+        return {
+            "ok": True,
+            "user": first.get("user_id") or username,
+            "sid": first.get("sid"),
+            "csrf_token": first.get("csrf_token") or ""
+        }
     except Exception as e:
         return {"ok": False, "message": f"ERPNext login failed: {str(e)}"}
 
