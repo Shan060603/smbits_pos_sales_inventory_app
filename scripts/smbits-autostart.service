@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/erpnext-custom-web-app
-ExecStart=%h/erpnext-custom-web-app/venv/bin/python %h/erpnext-custom-web-app/app.py
+ExecStart=%h/erpnext-custom-web-app/scripts/start_smbits.sh
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
