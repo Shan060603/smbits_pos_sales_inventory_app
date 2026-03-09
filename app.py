@@ -2,6 +2,7 @@ import os
 import socket
 import time
 import requests
+from urllib.parse import urlparse
 from flask import Flask, render_template, Response, request, redirect, url_for, session, flash, send_from_directory
 from dotenv import load_dotenv
 
@@ -12,19 +13,28 @@ load_dotenv()
 from my_inventory_app.bridge import inventory_bp
 from my_sales_app.main import sales_bp
 from my_purchases_app.bridge import purchase_bp
+from offline_outbox import init_outbox, start_outbox_worker, outbox_status, process_pending_jobs, save_snapshot
 
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY") or os.urandom(24)
+# Use a stable key across debug reload processes so first-login session is not lost.
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "smbits-local-dev-secret")
+init_outbox()
 
 # Register application modules
 app.register_blueprint(inventory_bp, url_prefix='/inventory')
 app.register_blueprint(sales_bp, url_prefix='/sales')
 app.register_blueprint(purchase_bp, url_prefix='/purchases')
 
-ERPNEXT_URL = (os.getenv("ERPNEXT_URL") or "").rstrip("/")
-DEFAULT_API_KEY = os.getenv("API_KEY") or os.getenv("ERP_API_KEY") or ""
-DEFAULT_API_SECRET = os.getenv("API_SECRET") or os.getenv("ERP_API_SECRET") or ""
 IDLE_TIMEOUT_SECONDS = int(os.getenv("IDLE_TIMEOUT_SECONDS", "300"))
+
+
+def _normalize_erp_url(raw_url):
+    raw = (raw_url or "").strip()
+    if not raw:
+        return ""
+    if not raw.startswith(("http://", "https://")):
+        raw = f"http://{raw}"
+    return raw.rstrip("/")
 
 
 def _is_public_path(path):
@@ -44,9 +54,9 @@ def _is_public_path(path):
 
 
 def _authenticate_erpnext_user(username, password, base_url=None):
-    base_url = (base_url or ERPNEXT_URL or "").rstrip("/")
+    base_url = (base_url or "").rstrip("/")
     if not base_url:
-        return {"ok": False, "message": "ERPNEXT_URL is not configured on server."}
+        return {"ok": False, "message": "ERP URL is required."}
     try:
         auth_session = requests.Session()
         login_res = auth_session.post(
@@ -64,27 +74,25 @@ def _authenticate_erpnext_user(username, password, base_url=None):
         )
         user_payload = user_res.json() if user_res.text else {}
         user_id = user_payload.get("message") if user_res.status_code == 200 else username
-        return {"ok": True, "user": user_id or username}
+        # Robust session extraction: read from session jar and direct response cookies.
+        cookies = auth_session.cookies.get_dict()
+        sid = cookies.get("sid") or login_res.cookies.get("sid")
+        csrf_token = cookies.get("csrf_token") or login_res.cookies.get("csrf_token") or ""
+
+        # Last-resort parse from Set-Cookie header.
+        if not sid:
+            set_cookie = login_res.headers.get("Set-Cookie") or ""
+            for part in set_cookie.split(";"):
+                part = part.strip()
+                if part.startswith("sid="):
+                    sid = part.split("=", 1)[1].strip()
+                    break
+
+        if not sid:
+            return {"ok": False, "message": "ERPNext login succeeded but no session ID was returned."}
+        return {"ok": True, "user": user_id or username, "sid": sid, "csrf_token": csrf_token}
     except Exception as e:
         return {"ok": False, "message": f"ERPNext login failed: {str(e)}"}
-
-
-def _validate_api_token(base_url, api_key, api_secret):
-    if not base_url or not api_key or not api_secret:
-        return {"ok": False, "message": "ERP URL, API key, and API secret are required."}
-    try:
-        res = requests.get(
-            f"{base_url}/api/method/frappe.auth.get_logged_user",
-            headers={"Authorization": f"token {api_key}:{api_secret}"},
-            timeout=15
-        )
-        payload = res.json() if res.text else {}
-        user = payload.get("message")
-        if res.status_code == 200 and user:
-            return {"ok": True, "user": user}
-        return {"ok": False, "message": payload.get("message") or "Invalid ERP token credentials."}
-    except Exception as e:
-        return {"ok": False, "message": f"Token validation failed: {str(e)}"}
 
 
 @app.before_request
@@ -96,7 +104,7 @@ def require_login():
         if "/api/" in request.path:
             return Response(status=401)
         return redirect(url_for("login", next=request.path))
-    if not session.get("erp_url") or not session.get("erp_api_key") or not session.get("erp_api_secret"):
+    if not session.get("erp_url") or not session.get("erp_sid"):
         session.clear()
         if "/api/" in request.path:
             return Response(status=401)
@@ -154,33 +162,31 @@ def login():
 
     username = (request.form.get("username") or "").strip()
     password = request.form.get("password") or ""
-    erp_url = (request.form.get("erp_url") or "").strip().rstrip("/")
-    api_key = (request.form.get("api_key") or "").strip()
-    api_secret = (request.form.get("api_secret") or "").strip()
+    erp_url = _normalize_erp_url(request.form.get("erp_url"))
     next_url = request.args.get("next") or request.form.get("next") or url_for("dashboard")
     if not str(next_url).startswith("/"):
         next_url = url_for("dashboard")
 
-    if not erp_url or not api_key or not api_secret:
-        flash("ERP URL, API key, and API secret are required.", "error")
+    if not erp_url:
+        flash("ERP URL is required.", "error")
+        return render_template("login.html", next_url=next_url, erp_url=erp_url), 400
+    parsed = urlparse(erp_url)
+    if not parsed.scheme or not parsed.netloc:
+        flash("ERP URL is invalid. Example: http://192.168.1.20", "error")
         return render_template("login.html", next_url=next_url, erp_url=erp_url), 400
     if not username or not password:
         flash("ERPNext username and password are required.", "error")
         return render_template("login.html", next_url=next_url, erp_url=erp_url), 400
-
-    token_check = _validate_api_token(erp_url, api_key, api_secret)
-    if not token_check.get("ok"):
-        flash(token_check.get("message") or "Invalid API token credentials.", "error")
-        return render_template("login.html", next_url=next_url, erp_url=erp_url), 401
 
     auth = _authenticate_erpnext_user(username, password, base_url=erp_url)
     if not auth.get("ok"):
         flash(auth.get("message") or "Login failed.", "error")
         return render_template("login.html", next_url=next_url, erp_url=erp_url), 401
 
+    session.clear()
     session["erp_url"] = erp_url
-    session["erp_api_key"] = api_key
-    session["erp_api_secret"] = api_secret
+    session["erp_sid"] = auth.get("sid")
+    session["erp_csrf_token"] = auth.get("csrf_token") or ""
     session["erp_user"] = auth.get("user")
     session["last_activity_ts"] = int(time.time())
     return redirect(next_url)
@@ -196,6 +202,189 @@ def logout():
 def health():
     """Health check endpoint for monitoring."""
     return {"status": "ok", "service": "smbits-erp-portal"}
+
+
+@app.route("/api/offline_queue/status")
+def offline_queue_status():
+    return outbox_status()
+
+
+@app.route("/api/offline_queue/sync", methods=["POST"])
+def offline_queue_sync():
+    synced = process_pending_jobs(limit=100)
+    status = outbox_status()
+    status["synced_now"] = int(synced)
+    return status
+
+
+@app.route("/api/offline_queue/warmup", methods=["POST"])
+def offline_queue_warmup():
+    erp_url = session.get("erp_url")
+    sid = session.get("erp_sid")
+    csrf = session.get("erp_csrf_token")
+    if not erp_url or not sid:
+        return {"status": "error", "message": "Not logged in."}, 401
+
+    from my_sales_app.bridge import SMBITSBridge
+    from my_purchases_app.bridge import SMBITSPurchaseBridge
+    from my_inventory_app.bridge import SMBITSInventoryBridge
+
+    sales_bridge = SMBITSBridge(url=erp_url, sid=sid, csrf_token=csrf)
+    purchase_bridge = SMBITSPurchaseBridge(url=erp_url, sid=sid, csrf_token=csrf)
+    inventory_bridge = SMBITSInventoryBridge(url=erp_url, sid=sid, csrf_token=csrf)
+
+    if not sales_bridge.is_erp_reachable(timeout=5):
+        return {"status": "error", "message": "ERPNext is not reachable right now."}, 503
+
+    stats = {
+        "sales": {},
+        "purchases": {},
+        "inventory": {}
+    }
+
+    # Sales snapshots
+    sales_meta = {
+        "customers": sales_bridge.get_resource_list("Customer"),
+        "items": sales_bridge.get_resource_list("Item"),
+        "companies": sales_bridge.get_resource_list("Company"),
+        "warehouses": sales_bridge.get_resource_list("Warehouse"),
+        "projects": sales_bridge.get_resource_list("Project"),
+        "cost_centers": sales_bridge.get_resource_list("Cost Center"),
+    }
+    save_snapshot(f"sales:metadata:{erp_url}", sales_meta)
+    stats["sales"]["metadata"] = {
+        "customers": len(sales_meta["customers"]),
+        "items": len(sales_meta["items"]),
+        "companies": len(sales_meta["companies"]),
+        "warehouses": len(sales_meta["warehouses"])
+    }
+
+    sales_report_meta = {
+        "customers": sales_meta["customers"],
+        "companies": sales_meta["companies"]
+    }
+    save_snapshot(f"sales:report_metadata:{erp_url}", sales_report_meta)
+    stats["sales"]["report_metadata"] = {
+        "customers": len(sales_report_meta["customers"]),
+        "companies": len(sales_report_meta["companies"])
+    }
+
+    for report_type in ("invoice", "order"):
+        if report_type == "invoice":
+            rows = sales_bridge.get_sales_invoice_report(status="submitted", start=0, page_length=200)
+            total_amount = sum(float(r.get("rounded_total") or r.get("grand_total") or 0) for r in rows)
+            total_paid = sum(float(r.get("paid_amount") or 0) for r in rows)
+            total_outstanding = sum(float(r.get("outstanding_amount") or 0) for r in rows)
+            payload = {
+                "rows": rows,
+                "summary": {
+                    "count": len(rows),
+                    "total_amount": total_amount,
+                    "total_paid": total_paid,
+                    "total_outstanding": total_outstanding
+                },
+                "offline": False,
+                "from_temp_db": False
+            }
+            key = f"sales:invoice_report:{erp_url}:::::submitted:0:200"
+        else:
+            rows = sales_bridge.get_sales_order_report(status="submitted", start=0, page_length=200)
+            total_amount = sum(float(r.get("rounded_total") or r.get("grand_total") or 0) for r in rows)
+            total_to_bill = 0.0
+            for r in rows:
+                row_total = float(r.get("rounded_total") or r.get("grand_total") or 0)
+                billed_pct = float(r.get("per_billed") or 0)
+                total_to_bill += max(row_total * (1 - (billed_pct / 100.0)), 0.0)
+            payload = {
+                "rows": rows,
+                "summary": {"count": len(rows), "total_amount": total_amount, "total_to_bill": total_to_bill},
+                "offline": False,
+                "from_temp_db": False
+            }
+            key = f"sales:order_report:{erp_url}:::::submitted:0:200"
+        save_snapshot(key, payload)
+        stats["sales"][f"{report_type}_report_rows"] = len(rows)
+
+    # Purchase snapshots
+    purchase_meta = {
+        "suppliers": purchase_bridge.get_resource_list("Supplier"),
+        "items": purchase_bridge.get_resource_list("Item"),
+        "warehouses": purchase_bridge.get_resource_list("Warehouse"),
+        "companies": purchase_bridge.get_resource_list("Company"),
+        "uoms": purchase_bridge.get_resource_list("UOM")
+    }
+    save_snapshot(f"purchase:metadata:{erp_url}", purchase_meta)
+    save_snapshot(
+        f"purchase:report_metadata:{erp_url}",
+        {"suppliers": purchase_meta["suppliers"], "companies": purchase_meta["companies"]}
+    )
+    stats["purchases"]["metadata"] = {
+        "suppliers": len(purchase_meta["suppliers"]),
+        "items": len(purchase_meta["items"]),
+        "warehouses": len(purchase_meta["warehouses"]),
+        "companies": len(purchase_meta["companies"])
+    }
+
+    for report_type in ("purchase_order", "purchase_invoice", "purchase_receipt"):
+        rows = purchase_bridge.get_purchase_document_report(
+            report_type=report_type, status="all", start=0, page_length=300
+        )
+        total_amount = sum(float(r.get("rounded_total") or r.get("grand_total") or 0) for r in rows)
+        total_outstanding = sum(float(r.get("outstanding_amount") or 0) for r in rows)
+        total_paid = sum(float(r.get("paid_amount") or 0) for r in rows)
+        payload = {
+            "rows": rows,
+            "summary": {
+                "count": len(rows),
+                "total_amount": total_amount,
+                "total_outstanding": total_outstanding,
+                "total_paid": total_paid
+            },
+            "offline": False,
+            "from_temp_db": False
+        }
+        key = f"purchase:report:{erp_url}:{report_type}:::::all:0:300"
+        save_snapshot(key, payload)
+        stats["purchases"][f"{report_type}_rows"] = len(rows)
+
+    # Inventory snapshots
+    inv_companies = inventory_bridge.get_resource_list("Company", fields=["name"])
+    inv_warehouses = inventory_bridge.get_resource_list("Warehouse", fields=["name", "company"])
+    inv_meta = {
+        "warehouses": inv_warehouses,
+        "companies": [c.get("name") for c in inv_companies if c.get("name")],
+        "offline": False,
+        "from_temp_db": False
+    }
+    save_snapshot(f"inventory:metadata:{erp_url}:", inv_meta)
+    stats["inventory"]["metadata"] = {
+        "companies": len(inv_meta["companies"]),
+        "warehouses": len(inv_warehouses)
+    }
+
+    inv_rows = inventory_bridge.get_full_stock_report(
+        company=None, warehouse=None, include_zero_stock=False, start=0, page_length=20
+    )
+    save_snapshot(f"inventory:stock_report:{erp_url}:::0:0:20", inv_rows)
+    stats["inventory"]["stock_rows_page1"] = len(inv_rows)
+
+    inv_item_list = inventory_bridge.get_item_list()
+    save_snapshot(f"inventory:item_list:{erp_url}", inv_item_list)
+    stats["inventory"]["item_list_rows"] = len(inv_item_list)
+
+    inv_uoms = inventory_bridge.get_resource_list("UOM", fields=["name"], start=0, page_length=2000)
+    inv_groups = inventory_bridge.get_resource_list("Item Group", fields=["name"], start=0, page_length=2000)
+    inv_filters = {
+        "uoms": [u.get("name") for u in inv_uoms if u.get("name")],
+        "item_groups": [g.get("name") for g in inv_groups if g.get("name")],
+        "offline": False,
+        "from_temp_db": False
+    }
+    save_snapshot(f"inventory:item_list_filters:{erp_url}", inv_filters)
+    stats["inventory"]["filter_uoms"] = len(inv_filters["uoms"])
+    stats["inventory"]["filter_item_groups"] = len(inv_filters["item_groups"])
+
+    return {"status": "success", "message": "Offline snapshots warmed.", "stats": stats}
 
 
 @app.route("/favicon.ico")
@@ -219,6 +408,9 @@ def service_worker():
 
 
 if __name__ == "__main__":
+    # Start auto-sync worker once in the reloader child process.
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not os.getenv("FLASK_DEBUG"):
+        start_outbox_worker(interval_seconds=20)
 
     current_ip = get_local_ip()
     hostname = socket.gethostname()

@@ -5,6 +5,7 @@ import datetime
 from pathlib import Path
 from flask import Blueprint, render_template, request, jsonify, session
 from dotenv import load_dotenv
+from offline_outbox import enqueue_job, is_transient_error, save_snapshot, load_snapshot
 
 # Load secrets from the app's own .env (works regardless of cwd)
 load_dotenv(Path(__file__).parent / '.env')
@@ -19,17 +20,29 @@ purchase_bp = Blueprint(
 )
 
 class SMBITSPurchaseBridge:
-    def __init__(self, url=None, api_key=None, api_secret=None):
+    def __init__(self, url=None, sid=None, csrf_token=None):
         # rstrip ensures no double slashes in API calls
         self.url = (url or os.getenv("ERPNEXT_URL") or "").rstrip('/')
-        self.api_key = api_key or os.getenv("API_KEY") or os.getenv("ERP_API_KEY")
-        self.api_secret = api_secret or os.getenv("API_SECRET") or os.getenv("ERP_API_SECRET")
+        self.sid = sid
+        self.csrf_token = csrf_token or ""
         self.headers = {
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
-        if self.api_key and self.api_secret:
-            self.headers["Authorization"] = f"token {self.api_key}:{self.api_secret}"
+        if self.sid:
+            self.headers["Cookie"] = f"sid={self.sid}"
+        if self.csrf_token:
+            self.headers["X-Frappe-CSRF-Token"] = self.csrf_token
+
+    def is_erp_reachable(self, timeout=3):
+        if not self.url:
+            return False
+        try:
+            endpoint = f"{self.url}/api/method/frappe.auth.get_logged_user"
+            res = requests.get(endpoint, headers=self.headers, timeout=timeout)
+            return res.status_code in (200, 401, 403)
+        except Exception:
+            return False
 
     def get_resource_list(self, doctype):
         """Fetches PO-related resources (Items, Suppliers, Warehouses, Companies)."""
@@ -432,8 +445,8 @@ class SMBITSPurchaseBridge:
 def get_purchase_engine():
     return SMBITSPurchaseBridge(
         url=session.get("erp_url"),
-        api_key=session.get("erp_api_key"),
-        api_secret=session.get("erp_api_secret")
+        sid=session.get("erp_sid"),
+        csrf_token=session.get("erp_csrf_token")
     )
 
 @purchase_bp.route('/')
@@ -445,13 +458,35 @@ def purchase_home():
 def get_metadata():
     """Endpoint for the UI to populate dropdowns."""
     purchase_engine = get_purchase_engine()
-    return jsonify({
+    snapshot_key = f"purchase:metadata:{session.get('erp_url') or ''}"
+
+    if not purchase_engine.is_erp_reachable(timeout=2):
+        snap = load_snapshot(snapshot_key)
+        if snap:
+            snap["offline"] = True
+            snap["from_temp_db"] = True
+            return jsonify(snap)
+        return jsonify({
+            "suppliers": [],
+            "items": [],
+            "warehouses": [],
+            "companies": [],
+            "uoms": [],
+            "offline": True,
+            "from_temp_db": False
+        }), 503
+
+    payload = {
         "suppliers": purchase_engine.get_resource_list("Supplier"),
         "items": purchase_engine.get_resource_list("Item"),
         "warehouses": purchase_engine.get_resource_list("Warehouse"),
         "companies": purchase_engine.get_resource_list("Company"),
-        "uoms": purchase_engine.get_resource_list("UOM")
-    })
+        "uoms": purchase_engine.get_resource_list("UOM"),
+        "offline": False,
+        "from_temp_db": False
+    }
+    save_snapshot(snapshot_key, {k: payload[k] for k in ("suppliers", "items", "warehouses", "companies", "uoms")})
+    return jsonify(payload)
 
 @purchase_bp.route('/api/price/<item_code>')
 def get_price(item_code):
@@ -485,13 +520,14 @@ def create_item():
     """Create item from purchases UI."""
     purchase_engine = get_purchase_engine()
     data = request.json or {}
-    result = purchase_engine.create_item(
-        item_code=(data.get('item_code') or '').strip(),
-        item_name=(data.get('item_name') or '').strip(),
-        stock_uom=(data.get('stock_uom') or '').strip(),
-        sales_price=float(data.get('sales_price') or 0),
-        purchase_price=float(data.get('purchase_price') or 0)
-    )
+    payload = {
+        "item_code": (data.get('item_code') or '').strip(),
+        "item_name": (data.get('item_name') or '').strip(),
+        "stock_uom": (data.get('stock_uom') or '').strip(),
+        "sales_price": float(data.get('sales_price') or 0),
+        "purchase_price": float(data.get('purchase_price') or 0)
+    }
+    result = purchase_engine.create_item(**payload)
 
     if isinstance(result, dict) and "data" in result:
         return jsonify({"status": "success", "item": result["data"]})
@@ -501,6 +537,21 @@ def create_item():
         error_msg = error_msg.get("message") or str(error_msg)
     if not error_msg and isinstance(result, dict):
         error_msg = result.get("error")
+    if is_transient_error(error_msg):
+        queue_id = enqueue_job(
+            "purchase_create_item",
+            payload=payload,
+            context={
+                "erp_url": session.get("erp_url"),
+                "erp_sid": session.get("erp_sid"),
+                "erp_csrf_token": session.get("erp_csrf_token"),
+            },
+        )
+        return jsonify({
+            "status": "success",
+            "queued": True,
+            "message": f"ERPNext unreachable. Item saved offline as queue #{queue_id}. It will auto-sync when connection returns."
+        })
     return jsonify({"status": "error", "message": error_msg or "Failed to create item."}), 400
 
 @purchase_bp.route('/api/submit', methods=['POST'])
@@ -522,7 +573,38 @@ def submit_purchase():
     if isinstance(created, dict) and created.get("name"):
         state = "Submitted" if int(created.get("docstatus") or 0) == 1 else "Created"
         return jsonify({"status": "success", "message": f"PO {created['name']} {state}!"})
-    return jsonify({"status": "error", "message": "Failed to create Purchase Order"}), 400
+
+    error_msg = None
+    if isinstance(result, dict):
+        error_msg = result.get("error") or result.get("message")
+        if isinstance(error_msg, dict):
+            error_msg = error_msg.get("message") or str(error_msg)
+    if not error_msg:
+        error_msg = "Failed to create Purchase Order"
+
+    if is_transient_error(error_msg):
+        queue_id = enqueue_job(
+            "purchase_submit_order",
+            payload={
+                "supplier": data.get('supplier'),
+                "company": data.get('company'),
+                "items": data.get('items') or [],
+                "transaction_date": data.get('transaction_date'),
+                "schedule_date": data.get('schedule_date')
+            },
+            context={
+                "erp_url": session.get("erp_url"),
+                "erp_sid": session.get("erp_sid"),
+                "erp_csrf_token": session.get("erp_csrf_token"),
+            },
+        )
+        return jsonify({
+            "status": "success",
+            "queued": True,
+            "message": f"ERPNext unreachable. Saved offline as queue #{queue_id}. It will auto-sync when connection returns."
+        })
+
+    return jsonify({"status": "error", "message": error_msg}), 400
 
 
 @purchase_bp.route('/report')
@@ -535,10 +617,29 @@ def purchase_reports():
 def report_metadata():
     """Metadata for Purchase reports filters."""
     purchase_engine = get_purchase_engine()
-    return jsonify({
+    snapshot_key = f"purchase:report_metadata:{session.get('erp_url') or ''}"
+
+    if not purchase_engine.is_erp_reachable(timeout=2):
+        snap = load_snapshot(snapshot_key)
+        if snap:
+            snap["offline"] = True
+            snap["from_temp_db"] = True
+            return jsonify(snap)
+        return jsonify({
+            "suppliers": [],
+            "companies": [],
+            "offline": True,
+            "from_temp_db": False
+        }), 503
+
+    payload = {
         "suppliers": purchase_engine.get_resource_list("Supplier"),
-        "companies": purchase_engine.get_resource_list("Company")
-    })
+        "companies": purchase_engine.get_resource_list("Company"),
+        "offline": False,
+        "from_temp_db": False
+    }
+    save_snapshot(snapshot_key, {"suppliers": payload["suppliers"], "companies": payload["companies"]})
+    return jsonify(payload)
 
 
 @purchase_bp.route('/api/report', methods=['GET'])
@@ -553,6 +654,24 @@ def purchase_report():
     status = request.args.get('status') or 'all'
     start = request.args.get('start', 0, type=int)
     page_length = request.args.get('page_length', 300, type=int)
+
+    snapshot_key = (
+        f"purchase:report:{session.get('erp_url') or ''}:"
+        f"{report_type}:{from_date or ''}:{to_date or ''}:{company or ''}:{supplier or ''}:{status or ''}:{start}:{page_length}"
+    )
+
+    if not purchase_engine.is_erp_reachable(timeout=2):
+        snap = load_snapshot(snapshot_key)
+        if snap:
+            snap["offline"] = True
+            snap["from_temp_db"] = True
+            return jsonify(snap)
+        return jsonify({
+            "rows": [],
+            "summary": {"count": 0, "total_amount": 0, "total_outstanding": 0, "total_paid": 0},
+            "offline": True,
+            "from_temp_db": False
+        }), 503
 
     rows = purchase_engine.get_purchase_document_report(
         report_type=report_type,
@@ -573,15 +692,19 @@ def purchase_report():
         total_outstanding += float(row.get("outstanding_amount") or 0)
         total_paid += float(row.get("paid_amount") or 0)
 
-    return jsonify({
+    payload = {
         "rows": rows,
         "summary": {
             "count": len(rows),
             "total_amount": total_amount,
             "total_outstanding": total_outstanding,
             "total_paid": total_paid
-        }
-    })
+        },
+        "offline": False,
+        "from_temp_db": False
+    }
+    save_snapshot(snapshot_key, payload)
+    return jsonify(payload)
 
 
 @purchase_bp.route('/api/convert', methods=['POST'])

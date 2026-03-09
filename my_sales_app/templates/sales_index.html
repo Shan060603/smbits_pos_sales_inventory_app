@@ -102,6 +102,7 @@
                         <div class="flex-grow min-w-[200px]">
                             <div class="flex justify-between items-center mb-1">
                                 <label class="text-[10px] font-bold text-slate-500 uppercase ml-1">Select Product</label>
+                                <button type="button" onclick="openItemModal()" class="text-[10px] font-bold uppercase text-amber-600 hover:text-amber-700">+ Add Item</button>
                                 <span id="stock-display" class="text-[10px] font-bold bg-white text-emerald-600 px-2 py-0.5 rounded shadow-sm border border-slate-100 hidden"></span>
                             </div>
                             <select id="item_input" onchange="onItemChanged()" class="w-full border border-slate-200 rounded-lg p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm bg-white">
@@ -186,6 +187,43 @@
         </div>
     </div>
 
+    <div id="item-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 border border-slate-200">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-black text-slate-800 uppercase">Add New Item</h3>
+                <button type="button" onclick="closeItemModal()" class="text-slate-500 hover:text-slate-700 text-xl">×</button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Item Code *</label>
+                    <input type="text" id="new_item_code" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="e.g. ITEM-001">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Item Name</label>
+                    <input type="text" id="new_item_name" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="e.g. Product Name">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">UOM *</label>
+                    <select id="new_item_uom" class="w-full border border-slate-200 rounded-lg p-2 text-sm bg-white">
+                        <option value="">Select UOM...</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Sales Price</label>
+                    <input type="number" id="new_item_sales_price" min="0" step="0.01" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="0.00">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Purchase Price</label>
+                    <input type="number" id="new_item_purchase_price" min="0" step="0.01" class="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="0.00">
+                </div>
+            </div>
+            <div class="mt-5 flex gap-3 justify-end">
+                <button type="button" onclick="closeItemModal()" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-600 text-sm font-bold">Cancel</button>
+                <button type="button" onclick="addItem()" class="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold">Save Item</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let cart = [];
         let allWarehouses = [], allCustomers = [], allItems = [];
@@ -206,6 +244,7 @@
                 allWarehouses = data.warehouses;
                 allCustomers = data.customers; 
                 allItems = data.items;
+                fillSelect('new_item_uom', (data.uoms || []).map(u => u.name), 'Select UOM...');
                 
                 // Populate Company Dropdown
                 const companySelect = document.getElementById('company');
@@ -226,19 +265,35 @@
 
         function updateClock() { document.getElementById('clock').innerText = new Date().toLocaleTimeString(); }
 
+        function fillSelect(id, list, placeholder = '') {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const placeholderHtml = placeholder ? `<option value="">${placeholder}</option>` : '';
+            el.innerHTML = placeholderHtml + list.map(v => `<option value="${v}">${v}</option>`).join('');
+        }
+
         function toggleTopNavMenu(id) {
             const el = document.getElementById(id);
             if (!el) return;
             el.classList.toggle('hidden');
         }
 
+        function normalizeText(v) {
+            return String(v || '').trim().toLowerCase();
+        }
+
         function filterAllByCompany() {
             const selectedCompany = document.getElementById('company').value;
+            const selectedCompanyKey = normalizeText(selectedCompany);
             
             // Filter Customers by Company
             const custSelect = document.getElementById('cust');
             const previousCustomer = custSelect.value;
-            const filteredCust = allCustomers.filter(c => !c.company || c.company === selectedCompany);
+            const filteredCust = allCustomers.filter(c => {
+                if (!c || typeof c !== 'object') return false;
+                if (!c.company) return true;
+                return normalizeText(c.company) === selectedCompanyKey;
+            });
             custSelect.innerHTML = '<option value="">Select Customer...</option>' + 
                 filteredCust.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
             if (filteredCust.some(c => c.name === previousCustomer)) {
@@ -247,8 +302,26 @@
 
             // Filter Warehouses by Company
             const whSelect = document.getElementById('warehouse');
-            const filteredWH = allWarehouses.filter(w => w.company === selectedCompany);
+            const previousWarehouse = whSelect.value;
+            const normalizedWarehouses = (allWarehouses || []).map((w) => {
+                if (typeof w === 'string') {
+                    return { name: w, company: '' };
+                }
+                return {
+                    name: w?.name || '',
+                    company: w?.company || ''
+                };
+            }).filter(w => w.name);
+
+            let filteredWH = normalizedWarehouses.filter(w => normalizeText(w.company) === selectedCompanyKey);
+            if (!filteredWH.length) {
+                filteredWH = normalizedWarehouses;
+            }
+
             whSelect.innerHTML = filteredWH.map(w => `<option value="${w.name}">${w.name}</option>`).join('');
+            if (filteredWH.some(w => w.name === previousWarehouse)) {
+                whSelect.value = previousWarehouse;
+            }
             
             fetchPriceAndStock();
         }
@@ -268,6 +341,54 @@
             document.getElementById('rate').value = '';
             document.getElementById('item-discount').value = 0;
             fetchPriceAndStock();
+        }
+
+        function openItemModal() {
+            document.getElementById('item-modal').classList.remove('hidden');
+            document.getElementById('item-modal').classList.add('flex');
+        }
+
+        function closeItemModal() {
+            document.getElementById('item-modal').classList.add('hidden');
+            document.getElementById('item-modal').classList.remove('flex');
+        }
+
+        async function addItem() {
+            const payload = {
+                item_code: document.getElementById('new_item_code').value.trim(),
+                item_name: document.getElementById('new_item_name').value.trim(),
+                stock_uom: document.getElementById('new_item_uom').value,
+                sales_price: document.getElementById('new_item_sales_price').value || 0,
+                purchase_price: document.getElementById('new_item_purchase_price').value || 0
+            };
+
+            if (!payload.item_code || !payload.stock_uom) {
+                return alert('Item code and UOM are required.');
+            }
+
+            const res = await fetch('/sales/api/items', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const result = await res.json();
+            if (!res.ok) return alert(result.message || 'Failed to create item');
+
+            const created = result.item || {};
+            const code = created.name || payload.item_code;
+            const name = created.item_name || payload.item_name || code;
+            allItems.push({ name: code, item_name: name });
+            itemCodeToName[code] = name;
+
+            const itemSelect = document.getElementById('item_input');
+            itemSelect.innerHTML = '<option value="">Choose an item...</option>' +
+                allItems.map(item => `<option value="${item.name}">${item.name} - ${item.item_name || item.name}</option>`).join('');
+            itemSelect.value = code;
+            document.getElementById('rate').value = Number(payload.sales_price || 0);
+            if (result.queued) {
+                alert(result.message || 'Item queued offline. It will sync when connection returns.');
+            }
+            closeItemModal();
         }
 
         async function addCustomer() {
@@ -315,13 +436,17 @@
             const warehouse = document.getElementById('warehouse').value;
             const stockDisplay = document.getElementById('stock-display');
             
-            if (!itemCode || !warehouse) {
+            if (!itemCode) {
                 stockDisplay.classList.add('hidden');
+                return;
+            }
+            if (!warehouse) {
+                stockDisplay.innerText = 'STOCK: select warehouse';
+                stockDisplay.className = 'text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded shadow-sm border border-amber-200';
                 return;
             }
 
             try {
-                // FIXED: Corrected endpoints for Price and Stock
                 const [priceRes, stockRes] = await Promise.all([
                     fetch(`/sales/api/get_price/${encodeURIComponent(itemCode)}`),
                     fetch(`/sales/api/get_stock?item_code=${encodeURIComponent(itemCode)}&warehouse=${encodeURIComponent(warehouse)}`)
@@ -329,6 +454,9 @@
                 
                 const priceData = await priceRes.json();
                 const stockData = await stockRes.json();
+                if (!stockRes.ok) {
+                    throw new Error(stockData.error || 'Unable to fetch stock');
+                }
                 
                 document.getElementById('rate').value = priceData.price || 0;
                 
@@ -337,7 +465,11 @@
                 stockDisplay.className = (stockData.qty <= 0) 
                     ? "text-[10px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded shadow-sm border border-red-200" 
                     : "text-[10px] font-bold bg-white text-emerald-600 px-2 py-0.5 rounded shadow-sm border border-emerald-100";
-            } catch (err) { console.error("Fetch Error:", err); }
+            } catch (err) {
+                stockDisplay.innerText = 'STOCK: unavailable';
+                stockDisplay.className = 'text-[10px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded shadow-sm border border-red-200';
+                console.error("Fetch Error:", err);
+            }
         }
 
         function addToCart() {

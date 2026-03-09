@@ -26,7 +26,7 @@
             {% endif %}
         {% endwith %}
 
-        <form method="POST" action="/login" class="space-y-4">
+        <form id="login-form" method="POST" action="{{ url_for('login', next=next_url) }}" class="space-y-4">
             <input type="hidden" name="next" value="{{ next_url or '/' }}">
             <div>
                 <label class="block text-[11px] uppercase tracking-widest font-bold text-slate-400 mb-1">ERPNext URL</label>
@@ -34,48 +34,14 @@
                     <i class="fa-solid fa-globe text-slate-500 text-sm"></i>
                     <input
                         name="erp_url"
-                        type="url"
+                        id="erp_url"
+                        type="text"
                         autocomplete="off"
                         class="w-full bg-transparent py-3 outline-none text-slate-100"
-                        placeholder="https://your-erpnext-site.com"
+                        placeholder="http://192.168.1.20"
                         value="{{ erp_url or '' }}"
                         required
                     >
-                </div>
-            </div>
-            <div>
-                <label class="block text-[11px] uppercase tracking-widest font-bold text-slate-400 mb-1">API Key</label>
-                <div class="flex items-center gap-2 bg-slate-900/70 border border-slate-700 rounded-xl px-3">
-                    <i class="fa-solid fa-key text-slate-500 text-sm"></i>
-                    <input
-                        id="api_key"
-                        name="api_key"
-                        type="password"
-                        autocomplete="off"
-                        class="w-full bg-transparent py-3 outline-none text-slate-100"
-                        placeholder="API Key"
-                        required
-                    >
-                    <button type="button" onclick="toggleSecret('api_key', this)" class="text-slate-400 hover:text-slate-200 text-sm">
-                        <i class="fa-solid fa-eye"></i>
-                    </button>
-                </div>
-            </div>
-            <div>
-                <label class="block text-[11px] uppercase tracking-widest font-bold text-slate-400 mb-1">API Secret</label>
-                <div class="flex items-center gap-2 bg-slate-900/70 border border-slate-700 rounded-xl px-3">
-                    <i class="fa-solid fa-shield-halved text-slate-500 text-sm"></i>
-                    <input
-                        id="api_secret"
-                        name="api_secret"
-                        type="password"
-                        class="w-full bg-transparent py-3 outline-none text-slate-100"
-                        placeholder="API Secret"
-                        required
-                    >
-                    <button type="button" onclick="toggleSecret('api_secret', this)" class="text-slate-400 hover:text-slate-200 text-sm">
-                        <i class="fa-solid fa-eye"></i>
-                    </button>
                 </div>
             </div>
             <div>
@@ -124,6 +90,20 @@
             input.type = show ? 'text' : 'password';
             icon.className = show ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye';
         }
+
+        (function initLoginForm() {
+            const form = document.getElementById('login-form');
+            const urlInput = document.getElementById('erp_url');
+            if (!form || !urlInput) return;
+            form.addEventListener('submit', function () {
+                const value = (urlInput.value || '').trim();
+                if (value && !/^https?:\/\//i.test(value)) {
+                    urlInput.value = `http://${value}`;
+                } else {
+                    urlInput.value = value;
+                }
+            });
+        })();
     </script>
 </body>
 </html>

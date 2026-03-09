@@ -2,6 +2,7 @@ import socket
 from flask import Blueprint, render_template, request, jsonify, session
 # Explicit relative import to find the bridge in the same folder
 from .bridge import SMBITSBridge
+from offline_outbox import enqueue_job, is_transient_error, save_snapshot, load_snapshot
 
 # 1. Define the Blueprint with the template folder specified
 sales_bp = Blueprint('sales_bp', __name__, template_folder='templates')
@@ -9,8 +10,8 @@ sales_bp = Blueprint('sales_bp', __name__, template_folder='templates')
 def get_bridge():
     return SMBITSBridge(
         url=session.get("erp_url"),
-        api_key=session.get("erp_api_key"),
-        api_secret=session.get("erp_api_secret")
+        sid=session.get("erp_sid"),
+        csrf_token=session.get("erp_csrf_token")
     )
 
 @sales_bp.route('/')
@@ -35,6 +36,26 @@ def get_metadata():
     """Fetches all dropdown data for Customers, Projects, and Cost Centers."""
     try:
         bridge = get_bridge()
+        snapshot_key = f"sales:metadata:{session.get('erp_url') or ''}"
+
+        if not bridge.is_erp_reachable(timeout=2):
+            snap = load_snapshot(snapshot_key)
+            if snap:
+                snap["offline"] = True
+                snap["from_temp_db"] = True
+                return jsonify(snap)
+            return jsonify({
+                "customers": [],
+                "items": [],
+                "companies": [],
+                "warehouses": [],
+                "projects": [],
+                "cost_centers": [],
+                "uoms": [],
+                "offline": True,
+                "from_temp_db": False
+            }), 503
+
         # Fetching raw lists from ERPNext via the bridge
         raw_warehouses = bridge.get_resource_list("Warehouse")
         raw_customers = bridge.get_resource_list("Customer")
@@ -42,6 +63,7 @@ def get_metadata():
         raw_companies = bridge.get_resource_list("Company")
         raw_projects = bridge.get_resource_list("Project")
         raw_cost_centers = bridge.get_resource_list("Cost Center")
+        raw_uoms = bridge.get_resource_list("UOM")
 
         # We keep the objects (dictionaries) so JS can access .name and .company properties
         data = {
@@ -50,8 +72,21 @@ def get_metadata():
             "companies": raw_companies, # Changed: sending full objects for .name access
             "warehouses": raw_warehouses,
             "projects": raw_projects,      
-            "cost_centers": raw_cost_centers 
+            "cost_centers": raw_cost_centers,
+            "uoms": raw_uoms,
+            "offline": False,
+            "from_temp_db": False
         }
+        if any(len(data.get(k) or []) > 0 for k in ("customers", "items", "companies", "warehouses", "projects", "cost_centers", "uoms")):
+            save_snapshot(snapshot_key, {
+                "customers": raw_customers,
+                "items": raw_items,
+                "companies": raw_companies,
+                "warehouses": raw_warehouses,
+                "projects": raw_projects,
+                "cost_centers": raw_cost_centers,
+                "uoms": raw_uoms
+            })
         return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -62,12 +97,34 @@ def get_report_metadata():
     """Fetch lightweight metadata for sales reporting filters."""
     try:
         bridge = get_bridge()
+        snapshot_key = f"sales:report_metadata:{session.get('erp_url') or ''}"
+        if not bridge.is_erp_reachable(timeout=2):
+            snap = load_snapshot(snapshot_key)
+            if snap:
+                snap["offline"] = True
+                snap["from_temp_db"] = True
+                return jsonify(snap)
+            return jsonify({
+                "customers": [],
+                "companies": [],
+                "offline": True,
+                "from_temp_db": False
+            }), 503
+
         customers = bridge.get_resource_list("Customer")
         companies = bridge.get_resource_list("Company")
-        return jsonify({
+        payload = {
             "customers": customers,
-            "companies": companies
-        })
+            "companies": companies,
+            "offline": False,
+            "from_temp_db": False
+        }
+        if customers or companies:
+            save_snapshot(snapshot_key, {
+                "customers": customers,
+                "companies": companies
+            })
+        return jsonify(payload)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -83,6 +140,23 @@ def invoice_report():
     status = (request.args.get('status') or 'submitted').lower()
     start = request.args.get('start', 0, type=int)
     page_length = request.args.get('page_length', 200, type=int)
+    snapshot_key = (
+        f"sales:invoice_report:{session.get('erp_url') or ''}:"
+        f"{from_date or ''}:{to_date or ''}:{company or ''}:{customer or ''}:{status or ''}:{start}:{page_length}"
+    )
+
+    if not bridge.is_erp_reachable(timeout=2):
+        snap = load_snapshot(snapshot_key)
+        if snap:
+            snap["offline"] = True
+            snap["from_temp_db"] = True
+            return jsonify(snap)
+        return jsonify({
+            "rows": [],
+            "summary": {"count": 0, "total_amount": 0, "total_paid": 0, "total_outstanding": 0},
+            "offline": True,
+            "from_temp_db": False
+        }), 503
 
     rows = bridge.get_sales_invoice_report(
         from_date=from_date,
@@ -102,15 +176,19 @@ def invoice_report():
         total_paid += float(row.get('paid_amount') or 0)
         total_outstanding += float(row.get('outstanding_amount') or 0)
 
-    return jsonify({
+    payload = {
         "rows": rows,
         "summary": {
             "count": len(rows),
             "total_amount": total_amount,
             "total_paid": total_paid,
             "total_outstanding": total_outstanding
-        }
-    })
+        },
+        "offline": False,
+        "from_temp_db": False
+    }
+    save_snapshot(snapshot_key, payload)
+    return jsonify(payload)
 
 
 @sales_bp.route('/api/order_report', methods=['GET'])
@@ -124,6 +202,23 @@ def order_report():
     status = (request.args.get('status') or 'submitted').lower()
     start = request.args.get('start', 0, type=int)
     page_length = request.args.get('page_length', 200, type=int)
+    snapshot_key = (
+        f"sales:order_report:{session.get('erp_url') or ''}:"
+        f"{from_date or ''}:{to_date or ''}:{company or ''}:{customer or ''}:{status or ''}:{start}:{page_length}"
+    )
+
+    if not bridge.is_erp_reachable(timeout=2):
+        snap = load_snapshot(snapshot_key)
+        if snap:
+            snap["offline"] = True
+            snap["from_temp_db"] = True
+            return jsonify(snap)
+        return jsonify({
+            "rows": [],
+            "summary": {"count": 0, "total_amount": 0, "total_to_bill": 0},
+            "offline": True,
+            "from_temp_db": False
+        }), 503
 
     rows = bridge.get_sales_order_report(
         from_date=from_date,
@@ -143,14 +238,18 @@ def order_report():
         total_amount += row_total
         total_to_bill += max(row_total * (1 - (billed_pct / 100.0)), 0.0)
 
-    return jsonify({
+    payload = {
         "rows": rows,
         "summary": {
             "count": len(rows),
             "total_amount": total_amount,
             "total_to_bill": total_to_bill
-        }
-    })
+        },
+        "offline": False,
+        "from_temp_db": False
+    }
+    save_snapshot(snapshot_key, payload)
+    return jsonify(payload)
 
 @sales_bp.route('/api/get_price/<path:item_code>')
 def get_price(item_code):
@@ -193,6 +292,42 @@ def create_customer():
     if not error_msg and isinstance(result, dict):
         error_msg = result.get('error')
     return jsonify({"status": "error", "message": error_msg or "Failed to create customer."}), 400
+
+
+@sales_bp.route('/api/items', methods=['POST'])
+def create_item():
+    """Create item from sales UI."""
+    bridge = get_bridge()
+    data = request.json or {}
+    payload = {
+        "item_code": (data.get("item_code") or "").strip(),
+        "item_name": (data.get("item_name") or "").strip(),
+        "stock_uom": (data.get("stock_uom") or "").strip(),
+        "sales_price": float(data.get("sales_price") or 0),
+        "purchase_price": float(data.get("purchase_price") or 0),
+    }
+    result = bridge.create_item(**payload)
+    if isinstance(result, dict) and result.get("ok") and isinstance(result.get("data"), dict):
+        return jsonify({"status": "success", "item": result["data"]})
+
+    error_msg = result.get("error") if isinstance(result, dict) else str(result)
+    if is_transient_error(error_msg):
+        queue_id = enqueue_job(
+            "sales_create_item",
+            payload=payload,
+            context={
+                "erp_url": session.get("erp_url"),
+                "erp_sid": session.get("erp_sid"),
+                "erp_csrf_token": session.get("erp_csrf_token"),
+            },
+        )
+        return jsonify({
+            "status": "success",
+            "queued": True,
+            "message": f"ERPNext unreachable. Item saved offline as queue #{queue_id}. It will auto-sync when connection returns."
+        })
+
+    return jsonify({"status": "error", "message": error_msg or "Failed to create item."}), 400
 
 @sales_bp.route('/api/submit', methods=['POST'])
 def submit_order():
@@ -262,6 +397,34 @@ def submit_order():
         error_msg = error_msg.get('message') or str(error_msg)
     if not error_msg and isinstance(result, dict):
         error_msg = result.get('error')
+
+    if is_transient_error(error_msg):
+        queue_id = enqueue_job(
+            "sales_submit_invoice",
+            payload={
+                "customer": customer,
+                "company": company,
+                "items": items,
+                "discount": data.get('additional_discount_percentage', 0),
+                "posting_date": data.get('posting_date'),
+                "due_date": data.get('delivery_date'),
+                "mode_of_payment": mode_of_payment,
+                "paid_amount": paid_amount,
+                "project": data.get('project'),
+                "cost_center": data.get('cost_center'),
+            },
+            context={
+                "erp_url": session.get("erp_url"),
+                "erp_sid": session.get("erp_sid"),
+                "erp_csrf_token": session.get("erp_csrf_token"),
+            },
+        )
+        return jsonify({
+            "status": "success",
+            "queued": True,
+            "message": f"ERPNext unreachable. Saved offline as queue #{queue_id}. It will auto-sync when connection returns."
+        })
+
     return jsonify({"status": "error", "message": error_msg}), 400
 
 def get_local_ip():

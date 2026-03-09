@@ -157,6 +157,7 @@
                     </button>
                     <div id="dashboard-account-menu" class="hidden absolute right-0 mt-2 w-56 bg-slate-800 border border-slate-600 rounded-xl p-2 shadow-xl z-50 space-y-1">
                         <div class="px-3 py-2 text-[10px] uppercase tracking-widest text-slate-400 font-black truncate">{{ session.get('erp_user', 'ERP User') }}</div>
+                        <button type="button" onclick="warmupOfflineData()" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Prepare Offline Data</button>
                         <button type="button" onclick="handleInstallClick()" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Add To Home Screen</button>
                         <form method="POST" action="/logout">
                             <button type="submit" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Logout</button>
@@ -221,12 +222,17 @@
                 <span class="h-4 w-px bg-slate-800"></span>
                 <span class="text-[10px] text-slate-500 font-black uppercase tracking-widest">Version 1.2.0-Stable</span>
             </div>
-            <div class="flex items-center gap-3 bg-slate-800/30 px-4 py-2 rounded-full border border-slate-700/30">
-                <span class="relative flex h-2 w-2">
-                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                </span>
-                <span id="uptime-display" class="text-[10px] text-emerald-500 font-black uppercase tracking-widest">Bridge Active • 00:00:00</span>
+            <div class="flex items-center gap-2">
+                <div class="flex items-center gap-3 bg-slate-800/30 px-4 py-2 rounded-full border border-slate-700/30">
+                    <span class="relative flex h-2 w-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <span id="uptime-display" class="text-[10px] text-emerald-500 font-black uppercase tracking-widest">Bridge Active • 00:00:00</span>
+                </div>
+                <div id="offline-queue-badge" class="bg-slate-800/30 px-4 py-2 rounded-full border border-slate-700/30 text-[10px] text-slate-300 font-black uppercase tracking-widest">
+                    Queue • ...
+                </div>
             </div>
         </div>
     </div>
@@ -312,6 +318,25 @@
             alert('Install prompt is not available on this browser right now. If supported, open browser menu and choose \"Install app\" or \"Add to Home screen\".');
         }
 
+        async function warmupOfflineData() {
+            const accountMenu = document.getElementById('dashboard-account-menu');
+            if (accountMenu && !accountMenu.classList.contains('hidden')) {
+                accountMenu.classList.add('hidden');
+            }
+            try {
+                const res = await fetch('/api/offline_queue/warmup', { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) {
+                    alert(data.message || 'Failed to prepare offline data.');
+                    return;
+                }
+                updateOfflineQueueBadge();
+                alert('Offline data prepared successfully. You can now use Sales, Purchases, and Inventory with temp DB snapshots when ERP is offline.');
+            } catch (e) {
+                alert(`Failed to prepare offline data: ${e.message}`);
+            }
+        }
+
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -338,6 +363,29 @@
             } catch(e) {}
         }
         fetchIP();
+
+        async function updateOfflineQueueBadge() {
+            const badge = document.getElementById('offline-queue-badge');
+            if (!badge) return;
+            try {
+                const res = await fetch('/api/offline_queue/status');
+                const data = await res.json();
+                const pending = Number(data.pending || 0);
+                if (pending > 0) {
+                    badge.className = 'bg-amber-500/10 px-4 py-2 rounded-full border border-amber-500/40 text-[10px] text-amber-300 font-black uppercase tracking-widest';
+                    badge.textContent = `Queue Pending • ${pending}`;
+                } else {
+                    badge.className = 'bg-emerald-500/10 px-4 py-2 rounded-full border border-emerald-500/30 text-[10px] text-emerald-300 font-black uppercase tracking-widest';
+                    badge.textContent = 'Queue Synced • 0';
+                }
+            } catch (e) {
+                badge.className = 'bg-rose-500/10 px-4 py-2 rounded-full border border-rose-500/30 text-[10px] text-rose-300 font-black uppercase tracking-widest';
+                badge.textContent = 'Queue Status • Unavailable';
+            }
+        }
+
+        updateOfflineQueueBadge();
+        setInterval(updateOfflineQueueBadge, 15000);
     </script>
     <script src="/static/idle-timeout.js"></script>
     <script>

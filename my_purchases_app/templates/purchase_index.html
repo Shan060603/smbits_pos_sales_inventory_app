@@ -415,6 +415,9 @@
             ).join('');
             itemSelect.value = code;
             document.getElementById('rate').value = Number(payload.purchase_price || 0);
+            if (result.queued) {
+                alert(result.message || 'Item queued offline. It will sync when connection returns.');
+            }
             closeItemModal();
         }
     </script>

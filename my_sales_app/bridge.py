@@ -8,17 +8,29 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class SMBITSBridge:
-    def __init__(self, url=None, api_key=None, api_secret=None):
-        # rstrip handles cases where the URL might have a trailing slash in .env
+    def __init__(self, url=None, sid=None, csrf_token=None):
         self.url = (url or os.getenv("ERPNEXT_URL", "")).rstrip('/')
-        self.api_key = api_key or os.getenv("API_KEY") or os.getenv("ERP_API_KEY")
-        self.api_secret = api_secret or os.getenv("API_SECRET") or os.getenv("ERP_API_SECRET")
+        self.sid = sid
+        self.csrf_token = csrf_token or ""
         self.headers = {
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
-        if self.api_key and self.api_secret:
-            self.headers["Authorization"] = f"token {self.api_key}:{self.api_secret}"
+        if self.sid:
+            self.headers["Cookie"] = f"sid={self.sid}"
+        if self.csrf_token:
+            self.headers["X-Frappe-CSRF-Token"] = self.csrf_token
+
+    def is_erp_reachable(self, timeout=3):
+        """Quick connectivity check to avoid multiple noisy failures when offline."""
+        if not self.url:
+            return False
+        try:
+            endpoint = f"{self.url}/api/method/frappe.auth.get_logged_user"
+            res = requests.get(endpoint, headers=self.headers, timeout=timeout)
+            return res.status_code in (200, 401, 403)
+        except Exception:
+            return False
 
     def get_resource_list(self, doctype):
         """Fetches resources with specific fields based on doctype for dropdowns."""
@@ -186,6 +198,57 @@ class SMBITSBridge:
             return response.json()
         except Exception as e:
             return {"error": str(e)}
+
+    def create_item(self, item_code, item_name, stock_uom, sales_price=0, purchase_price=0):
+        """Creates an Item and optional Standard Selling/Buying prices."""
+        item_code = (item_code or "").strip()
+        item_name = (item_name or item_code).strip()
+        stock_uom = (stock_uom or "").strip()
+        if not item_code or not stock_uom:
+            return {"ok": False, "error": "Item code and UOM are required."}
+
+        item_groups = self.get_resource_list("Item Group")
+        item_group = item_groups[0]["name"] if item_groups else "All Item Groups"
+
+        item_payload = {
+            "item_code": item_code,
+            "item_name": item_name,
+            "stock_uom": stock_uom,
+            "item_group": item_group,
+            "is_stock_item": 1
+        }
+
+        try:
+            endpoint = f"{self.url}/api/resource/Item"
+            response = requests.post(endpoint, headers=self.headers, json=item_payload)
+            body = response.json() if response.text else {}
+            if response.status_code not in (200, 201) or "data" not in body:
+                msg = body.get("message")
+                if isinstance(msg, dict):
+                    msg = msg.get("message")
+                return {"ok": False, "error": msg or body.get("error") or f"Failed to create item ({response.status_code})"}
+
+            created_code = body["data"]["name"]
+            if float(sales_price or 0) > 0:
+                self._create_item_price(created_code, "Standard Selling", sales_price)
+            if float(purchase_price or 0) > 0:
+                self._create_item_price(created_code, "Standard Buying", purchase_price)
+
+            return {"ok": True, "data": body["data"]}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def _create_item_price(self, item_code, price_list, rate):
+        endpoint = f"{self.url}/api/resource/Item Price"
+        payload = {
+            "item_code": item_code,
+            "price_list": price_list,
+            "price_list_rate": float(rate)
+        }
+        try:
+            requests.post(endpoint, headers=self.headers, json=payload)
+        except Exception:
+            pass
 
     def get_sales_invoice_report(
         self,

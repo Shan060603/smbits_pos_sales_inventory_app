@@ -3,6 +3,7 @@ import json
 import requests
 from flask import Blueprint, render_template, request, jsonify, session
 from dotenv import load_dotenv
+from offline_outbox import save_snapshot, load_snapshot, enqueue_job, is_transient_error
 
 load_dotenv()
 
@@ -19,10 +20,10 @@ inventory_bp = Blueprint(
 # ----------------------------------------------------
 class SMBITSInventoryBridge:
 
-    def __init__(self, url=None, api_key=None, api_secret=None):
+    def __init__(self, url=None, sid=None, csrf_token=None):
         self.url = (url or os.getenv("ERPNEXT_URL") or "").rstrip("/")
-        self.api_key = api_key or os.getenv("API_KEY") or os.getenv("ERP_API_KEY")
-        self.api_secret = api_secret or os.getenv("API_SECRET") or os.getenv("ERP_API_SECRET")
+        self.sid = sid
+        self.csrf_token = csrf_token or ""
 
         self.session = requests.Session()
         headers = {
@@ -30,14 +31,26 @@ class SMBITSInventoryBridge:
             "Content-Type": "application/json",
             "Expect": None  # disables 417 error reliably
         }
-        if self.api_key and self.api_secret:
-            headers["Authorization"] = f"token {self.api_key}:{self.api_secret}"
+        if self.sid:
+            headers["Cookie"] = f"sid={self.sid}"
+        if self.csrf_token:
+            headers["X-Frappe-CSRF-Token"] = self.csrf_token
         self.session.headers.update(headers)
 
         # Optional: retry for transient network issues
         adapter = requests.adapters.HTTPAdapter(max_retries=3)
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
+
+    def is_erp_reachable(self, timeout=3):
+        if not self.url:
+            return False
+        try:
+            endpoint = f"{self.url}/api/method/frappe.auth.get_logged_user"
+            res = self.session.get(endpoint, timeout=timeout)
+            return res.status_code in (200, 401, 403)
+        except Exception:
+            return False
 
     # -------------------------------
     # GENERIC RESOURCE FETCH
@@ -437,8 +450,8 @@ class SMBITSInventoryBridge:
 def get_inventory_engine():
     return SMBITSInventoryBridge(
         url=session.get("erp_url"),
-        api_key=session.get("erp_api_key"),
-        api_secret=session.get("erp_api_secret")
+        sid=session.get("erp_sid"),
+        csrf_token=session.get("erp_csrf_token")
     )
 
 
@@ -459,6 +472,21 @@ def inventory_items_page():
 def get_metadata():
     inventory_engine = get_inventory_engine()
     company = request.args.get("company")
+    snapshot_key = f"inventory:metadata:{session.get('erp_url') or ''}:{company or ''}"
+
+    if not inventory_engine.is_erp_reachable(timeout=2):
+        snap = load_snapshot(snapshot_key)
+        if snap:
+            snap["offline"] = True
+            snap["from_temp_db"] = True
+            return jsonify(snap)
+        return jsonify({
+            "warehouses": [],
+            "companies": [],
+            "offline": True,
+            "from_temp_db": False
+        }), 503
+
     wh_filters = [["company", "=", company]] if company else []
 
     warehouses = inventory_engine.get_resource_list(
@@ -472,10 +500,14 @@ def get_metadata():
         fields=["name"]
     )
 
-    return jsonify({
+    payload = {
         "warehouses": warehouses,
-        "companies": [c["name"] for c in companies]
-    })
+        "companies": [c["name"] for c in companies],
+        "offline": False,
+        "from_temp_db": False
+    }
+    save_snapshot(snapshot_key, payload)
+    return jsonify(payload)
 
 
 @inventory_bp.route("/api/stock_report", methods=["GET"])
@@ -485,6 +517,16 @@ def stock_report():
     warehouse = request.args.get("warehouse")
     include_zero_stock = str(request.args.get("include_zero_stock", "")).lower() in ("1", "true", "yes", "on")
     start = request.args.get("start", 0, type=int)
+    snapshot_key = (
+        f"inventory:stock_report:{session.get('erp_url') or ''}:"
+        f"{company or ''}:{warehouse or ''}:{int(include_zero_stock)}:{start}:20"
+    )
+
+    if not inventory_engine.is_erp_reachable(timeout=2):
+        snap = load_snapshot(snapshot_key)
+        if snap:
+            return jsonify(snap)
+        return jsonify([]), 503
 
     data = inventory_engine.get_full_stock_report(
         company=company,
@@ -494,18 +536,36 @@ def stock_report():
         page_length=20
     )
 
+    save_snapshot(snapshot_key, data)
     return jsonify(data)
 
 
 @inventory_bp.route("/api/item_list", methods=["GET"])
 def item_list():
     inventory_engine = get_inventory_engine()
-    return jsonify(inventory_engine.get_item_list())
+    snapshot_key = f"inventory:item_list:{session.get('erp_url') or ''}"
+    if not inventory_engine.is_erp_reachable(timeout=2):
+        snap = load_snapshot(snapshot_key)
+        if snap is not None:
+            return jsonify(snap)
+        return jsonify([])
+    rows = inventory_engine.get_item_list()
+    save_snapshot(snapshot_key, rows)
+    return jsonify(rows)
 
 
 @inventory_bp.route("/api/item_list_filters", methods=["GET"])
 def item_list_filters():
     inventory_engine = get_inventory_engine()
+    snapshot_key = f"inventory:item_list_filters:{session.get('erp_url') or ''}"
+    if not inventory_engine.is_erp_reachable(timeout=2):
+        snap = load_snapshot(snapshot_key)
+        if snap:
+            snap["offline"] = True
+            snap["from_temp_db"] = True
+            return jsonify(snap)
+        return jsonify({"uoms": [], "item_groups": [], "offline": True, "from_temp_db": False}), 503
+
     uoms = inventory_engine.get_resource_list(
         "UOM",
         fields=["name"],
@@ -518,10 +578,14 @@ def item_list_filters():
         start=0,
         page_length=2000
     )
-    return jsonify({
+    payload = {
         "uoms": [u.get("name") for u in uoms if u.get("name")],
-        "item_groups": [g.get("name") for g in item_groups if g.get("name")]
-    })
+        "item_groups": [g.get("name") for g in item_groups if g.get("name")],
+        "offline": False,
+        "from_temp_db": False
+    }
+    save_snapshot(snapshot_key, payload)
+    return jsonify(payload)
 
 
 @inventory_bp.route("/api/items", methods=["POST"])
@@ -539,7 +603,32 @@ def create_item():
     )
     if result.get("ok"):
         return jsonify({"status": "success", "item": result.get("data")})
-    return jsonify({"status": "error", "message": result.get("error") or "Failed to create item."}), 400
+
+    error_msg = result.get("error") or "Failed to create item."
+    if is_transient_error(error_msg):
+        queue_id = enqueue_job(
+            "inventory_create_item",
+            payload={
+                "item_code": data.get("item_code"),
+                "item_name": data.get("item_name"),
+                "stock_uom": data.get("stock_uom"),
+                "item_group": data.get("item_group"),
+                "is_stock_item": bool(data.get("is_stock_item", True)),
+                "sales_price": float(data.get("sales_price") or 0),
+                "purchase_price": float(data.get("purchase_price") or 0),
+            },
+            context={
+                "erp_url": session.get("erp_url"),
+                "erp_sid": session.get("erp_sid"),
+                "erp_csrf_token": session.get("erp_csrf_token"),
+            },
+        )
+        return jsonify({
+            "status": "success",
+            "queued": True,
+            "message": f"ERPNext unreachable. Item saved offline as queue #{queue_id}. It will auto-sync when connection returns."
+        })
+    return jsonify({"status": "error", "message": error_msg}), 400
 
 
 @inventory_bp.route("/api/uoms", methods=["POST"])
