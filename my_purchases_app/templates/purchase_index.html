@@ -217,6 +217,10 @@
             updateClock();
             setInterval(updateClock, 1000);
 
+            // Auto warmup offline data in background
+            fetch('/api/offline_queue/warmup', { method: 'POST' }).catch(() => {});
+            setInterval(() => fetch('/api/offline_queue/warmup', { method: 'POST' }).catch(() => {}), 10 * 60 * 1000);
+
             // Set default dates
             document.getElementById('posting_date').valueAsDate = new Date();
             let delivery = new Date();

@@ -5,7 +5,7 @@ import requests
 from collections import defaultdict
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
-from flask import Flask, render_template, Response, request, redirect, url_for, session, flash, send_from_directory
+from flask import Flask, render_template, Response, request, redirect, url_for, session, flash, send_from_directory, stream_with_context
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -28,7 +28,59 @@ app.register_blueprint(inventory_bp, url_prefix='/inventory')
 app.register_blueprint(sales_bp, url_prefix='/sales')
 app.register_blueprint(purchase_bp, url_prefix='/purchases')
 
-IDLE_TIMEOUT_SECONDS = int(os.getenv("IDLE_TIMEOUT_SECONDS", "300"))
+IDLE_TIMEOUT_SECONDS = int(os.getenv("IDLE_TIMEOUT_SECONDS", "600"))
+
+# Image proxy endpoint - serves ERPNext images over HTTPS to avoid mixed content blocking
+@app.route("/api/proxy/image")
+def proxy_erp_image():
+    """Proxy ERPNext images through HTTPS to avoid mixed content blocking."""
+    image_url = request.args.get("url")
+    if not image_url:
+        return "Missing url parameter", 400
+    
+    # Get ERPNext URL from environment or config
+    erp_host = os.getenv("ERPNEXT_HOST", "fresh.localhost")
+    
+    # Only allow proxying from configured ERPNext server
+    if erp_host not in image_url:
+        return "Invalid image URL - not from ERPNext server", 400
+    
+    # Convert http to https if needed
+    if image_url.startswith("http://"):
+        image_url = image_url.replace("http://", "https://", 1)
+    
+    # Try HTTPS first, fall back to HTTP if it fails
+    urls_to_try = [image_url]
+    if image_url.startswith("https://"):
+        urls_to_try.append(image_url.replace("https://", "http://", 1))
+    
+    for url in urls_to_try:
+        try:
+            def generate():
+                r = requests.get(url, stream=True, timeout=10)
+                r.raise_for_status()
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk:
+                        yield chunk
+            
+            # Determine content type from URL
+            content_type = "image/jpeg"
+            if url.lower().endswith(".png"):
+                content_type = "image/png"
+            elif url.lower().endswith(".gif"):
+                content_type = "image/gif"
+            elif url.lower().endswith(".webp"):
+                content_type = "image/webp"
+            
+            return Response(
+                stream_with_context(generate()),
+                content_type=content_type,
+                headers={"Cache-Control": "public, max-age=3600"}
+            )
+        except:
+            continue
+    
+    return "Could not fetch image from ERPNext", 500
 
 
 def _normalize_erp_url(raw_url):

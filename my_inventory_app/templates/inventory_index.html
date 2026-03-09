@@ -172,6 +172,10 @@ function toggleTopNavMenu(id) {
 }
 
 async function initReport() {
+  // Auto warmup offline data in background
+  fetch('/api/offline_queue/warmup', { method: 'POST' }).catch(() => {});
+  setInterval(() => fetch('/api/offline_queue/warmup', { method: 'POST' }).catch(() => {}), 10 * 60 * 1000);
+
   try {
     const res = await fetch('/inventory/api/metadata')
     const data = await res.json()

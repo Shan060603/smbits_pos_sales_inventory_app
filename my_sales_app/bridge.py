@@ -14,7 +14,8 @@ class SMBITSBridge:
         self.csrf_token = csrf_token or ""
         self.headers = {
             "Content-Type": "application/json",
-            "Accept": "application/json"
+            "Accept": "application/json",
+            "Expect": ""  # prevents 417 EXPECTATION FAILED
         }
         if self.sid:
             self.headers["Cookie"] = f"sid={self.sid}"
@@ -32,34 +33,90 @@ class SMBITSBridge:
         except Exception:
             return False
 
-    def get_resource_list(self, doctype):
+    def get_resource_list(self, doctype, fields=None):
         """Fetches resources with specific fields based on doctype for dropdowns."""
         endpoint = f"{self.url}/api/resource/{doctype}"
         
         # Mapping doctypes to the specific fields needed for filtering and display
         field_map = {
-            "Item": ["name", "item_name"],
+            "Item": ["name", "item_name", "item_group", "image"],
             "Warehouse": ["name", "company"],
             "Project": ["name", "project_name", "company"],
             "Cost Center": ["name", "company"],
             "Customer": ["name", "customer_name", "company"],
-            "Company": ["name"]
+            "Company": ["name"],
+            "Item Group": ["name"]
         }
         
-        fields = field_map.get(doctype, ["name"])
+        # Use provided fields or fall back to default field map
+        requested_fields = fields if fields else field_map.get(doctype, ["name"])
         
         params = {
-            "fields": json.dumps(fields),
-            "limit_page_length": 2000,  # Higher limit for large lists
+            "fields": json.dumps(requested_fields),
+            "limit_page_length": 2000,
             "limit_start": 0
         }
         
         try:
-            response = requests.get(endpoint, headers=self.headers, params=params)
-            response.raise_for_status() # Raise error for 401/404/500
+            # Use a session to properly handle headers
+            session = requests.Session()
+            session.headers.update(self.headers)
+            response = session.get(endpoint, params=params)
+            response.raise_for_status()
             return response.json().get("data", [])
         except Exception as e:
             print(f"❌ Fetch Error [{doctype}]: {str(e)}")
+            return []
+
+    def get_pos_items(self):
+        """Fetches items with prices and images for POS grid."""
+        try:
+            # First get all items
+            items = self.get_resource_list("Item")
+            
+            pos_items = []
+            for item in items:
+                item_code = item.get("name")
+                if not item_code:
+                    continue
+                
+                # Get selling price
+                price = self.get_item_price(item_code)
+                
+                # Get stock levels (for default warehouse)
+                stock = 0
+                try:
+                    warehouses = self.get_resource_list("Warehouse")
+                    if warehouses:
+                        default_warehouse = warehouses[0].get("name")
+                        stock = self.get_stock_level(item_code, default_warehouse)
+                except:
+                    pass
+                
+                # Build item with price - convert image URL to proxy
+                image_url = item.get("image", "")
+                if image_url:
+                    # Handle relative URLs (like /files/image.jpg)
+                    if image_url.startswith("/files/"):
+                        image_url = f"http://fresh.localhost{image_url}"
+                    # Convert HTTP to proxy URL
+                    if "localhost" in image_url or "fresh.localhost" in image_url:
+                        proxy_url = image_url.replace("http://", "/api/proxy/image?url=http://")
+                        image_url = proxy_url
+                
+                pos_item = {
+                    "name": item_code,
+                    "item_name": item.get("item_name", item_code),
+                    "selling_price": price,
+                    "item_group": item.get("item_group", ""),
+                    "image": image_url,
+                    "stock": stock
+                }
+                pos_items.append(pos_item)
+            
+            return pos_items
+        except Exception as e:
+            print(f"❌ Fetch POS Items Error: {str(e)}")
             return []
 
     def get_item_price(self, item_code):
@@ -98,7 +155,12 @@ class SMBITSBridge:
             response = requests.get(endpoint, headers=self.headers, params=params)
             if response.status_code == 200:
                 data = response.json().get("data", [])
-                return float(data[0]['actual_qty']) if data else 0.0
+                if data:
+                    return float(data[0]['actual_qty'])
+                # No bin record found - check if warehouse exists
+                print(f"DEBUG: No Bin record for {item_code} in {warehouse}")
+                return 0.0
+            print(f"DEBUG: Bin API returned {response.status_code} for {item_code}")
             return 0.0
         except Exception as e:
             print(f"❌ Stock Fetch Error: {str(e)}")

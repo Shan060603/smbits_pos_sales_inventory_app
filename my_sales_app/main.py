@@ -258,6 +258,29 @@ def get_price(item_code):
     price = bridge.get_item_price(item_code)
     return jsonify({"price": price})
 
+@sales_bp.route('/api/pos_items')
+def get_pos_items():
+    """Fetches items with prices and images for POS grid display."""
+    bridge = get_bridge()
+    items = bridge.get_pos_items()
+    
+    # Also get all item groups
+    try:
+        item_groups = bridge.get_resource_list("Item Group")
+        groups = [g.get("name") for g in item_groups if g.get("name")]
+    except:
+        groups = []
+    
+    # Fix image URLs to point to ERPNext server
+    erp_url = session.get('erp_url', '')
+    for item in items:
+        if item.get('image'):
+            img = item['image']
+            if img and not img.startswith('http'):
+                item['image'] = f"{erp_url}{img}"
+    
+    return jsonify({"items": items, "item_groups": groups})
+
 @sales_bp.route('/api/get_stock')
 def get_stock():
     """Fetches real-time stock levels for a specific item and warehouse."""
@@ -267,6 +290,7 @@ def get_stock():
     if not item_code or not warehouse:
         return jsonify({"error": "Missing parameters"}), 400
     qty = bridge.get_stock_level(item_code, warehouse)
+    print(f"DEBUG: Stock for {item_code} in {warehouse} = {qty}")  # Debug log
     return jsonify({"qty": qty})
 
 @sales_bp.route('/api/item_by_barcode')

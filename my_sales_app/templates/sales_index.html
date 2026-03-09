@@ -80,7 +80,7 @@
                             </div>
                             <div>
                                 <label class="block text-[10px] font-bold text-slate-400 uppercase">Warehouse</label>
-                                <select id="warehouse" onchange="fetchPriceAndStock()" class="w-full border-2 border-slate-50 rounded-lg p-2.5 mt-1 bg-white outline-none focus:border-amber-500 text-sm"></select>
+                                <select id="warehouse" onchange="fetchPriceAndStock(); refreshItemGridStock();" class="w-full border-2 border-slate-50 rounded-lg p-2.5 mt-1 bg-white outline-none focus:border-amber-500 text-sm"></select>
                             </div>
                         </div>
                     </div>
@@ -96,48 +96,40 @@
             </div>
 
             <div class="lg:col-span-3 space-y-4">
-                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 min-h-[550px] flex flex-col">
-                    
-                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap gap-3 items-end mb-6">
-                        <div class="w-full md:w-72">
-                            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1 ml-1">Scan Barcode</label>
-                            <div class="flex gap-2">
-                                <input
-                                    type="text"
-                                    id="barcode_input"
-                                    onkeydown="handleBarcodeKeydown(event)"
-                                    class="w-full border border-slate-200 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-amber-500 text-sm bg-white"
-                                    placeholder="Scan barcode then press Enter"
-                                >
-                                <button type="button" onclick="scanBarcode()" class="bg-slate-800 text-white font-bold px-3 py-2 rounded-lg hover:bg-slate-900 text-xs uppercase">
-                                    Scan
-                                </button>
-                            </div>
-                        </div>
+                <!-- POS Item Picker Grid -->
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+                    <div class="flex flex-wrap gap-3 items-center mb-4">
                         <div class="flex-grow min-w-[200px]">
-                            <div class="flex justify-between items-center mb-1">
-                                <label class="text-[10px] font-bold text-slate-500 uppercase ml-1">Select Product</label>
-                                <button type="button" onclick="openItemModal()" class="text-[10px] font-bold uppercase text-amber-600 hover:text-amber-700">+ Add Item</button>
-                                <span id="stock-display" class="text-[10px] font-bold bg-white text-emerald-600 px-2 py-0.5 rounded shadow-sm border border-slate-100 hidden"></span>
-                            </div>
-                            <select id="item_input" onchange="onItemChanged()" class="w-full border border-slate-200 rounded-lg p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm bg-white">
-                                <option value="">Choose an item...</option>
+                            <input 
+                                type="text" 
+                                id="item-search" 
+                                onkeyup="filterItemGrid()"
+                                class="w-full border border-slate-200 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-amber-500 text-sm bg-white"
+                                placeholder="Search items..."
+                            >
+                        </div>
+                        <div class="flex gap-2 items-center">
+                            <label class="text-xs font-bold text-slate-500 uppercase">Category:</label>
+                            <select id="item-category-filter" onchange="filterByCategory(this.value)" class="border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold bg-white">
+                                <option value="all">All Categories</option>
                             </select>
                         </div>
-                        <div class="w-20">
-                            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1 ml-1">Qty</label>
-                            <input type="number" id="qty" class="w-full border border-slate-200 rounded-lg p-2.5 text-sm" value="1">
-                        </div>
-                        <div class="w-28">
-                            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1 ml-1">Rate</label>
-                            <input type="number" id="rate" class="w-full border border-slate-200 rounded-lg p-2.5 text-sm" placeholder="0.00">
-                        </div>
-                        <div class="w-24">
-                            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1 ml-1">Disc %</label>
-                            <input type="number" id="item-discount" class="w-full border border-slate-200 rounded-lg p-2.5 text-sm" value="0" min="0" max="100">
-                        </div>
-                        <button onclick="addToCart()" class="bg-slate-800 text-white font-bold px-6 py-3 rounded-lg hover:bg-slate-900 transition-all border-b-2 border-amber-500">Add</button>
+                        <button type="button" onclick="openItemModal()" class="bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-2 rounded-lg text-xs uppercase flex items-center gap-1">
+                            <span>+</span> New Item
+                        </button>
+                        <span id="stock-display" class="text-[10px] font-bold bg-white text-emerald-600 px-2 py-0.5 rounded shadow-sm border border-slate-100 hidden"></span>
                     </div>
+                    <!-- Status message area -->
+                    <div id="status" class="hidden"></div>
+                    <!-- Hidden inputs for JavaScript functions -->
+                    <input type="hidden" id="item_input" value="">
+                    <input type="hidden" id="qty" value="1">
+                    <input type="hidden" id="rate" value="0">
+                    <input type="hidden" id="item-discount" value="0">
+                    <div id="item-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 max-h-[400px] overflow-y-auto p-2">
+                        <!-- Items will be rendered here as clickable cards -->
+                    </div>
+                </div>
 
                     <div class="flex-grow overflow-x-auto">
                         <table class="w-full text-left">
@@ -258,6 +250,10 @@
             let tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
             document.getElementById('delivery_date').valueAsDate = tomorrow;
 
+            // Auto warmup offline data in background
+            fetch('/api/offline_queue/warmup', { method: 'POST' }).catch(() => {});
+            setInterval(() => fetch('/api/offline_queue/warmup', { method: 'POST' }).catch(() => {}), 10 * 60 * 1000);
+
             try {
                 const response = await fetch('/sales/api/metadata');
                 const data = await response.json();
@@ -271,18 +267,143 @@
                 const companySelect = document.getElementById('company');
                 companySelect.innerHTML = data.companies.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
                 
-                // Populate the NEW Item Select Dropdown
-                const itemSelect = document.getElementById('item_input');
-                itemSelect.innerHTML = '<option value="">Choose an item...</option>' + 
-                    data.items.map(item => {
-                        itemCodeToName[item.name] = item.item_name;
-                        return `<option value="${item.name}">${item.name} - ${item.item_name}</option>`;
-                    }).join('');
+                // Store item names for reference (used by barcode scanner)
+                data.items.forEach(item => {
+                    itemCodeToName[item.name] = item.item_name;
+                });
+
+                // Render the POS item grid with prices
+                try {
+                    const posRes = await fetch('/sales/api/pos_items');
+                    const posData = await posRes.json();
+                    if (posData.items) {
+                        renderItemGrid(posData.items);
+                        // Populate category filter dropdown
+                        let categories = [];
+                        if (posData.item_groups && posData.item_groups.length > 0) {
+                            categories = posData.item_groups;
+                        } else {
+                            categories = [...new Set(posData.items.map(i => i.item_group).filter(Boolean))];
+                        }
+                        const catFilter = document.getElementById('item-category-filter');
+                        if (catFilter) {
+                            catFilter.innerHTML = '<option value="all">All Categories</option>' + 
+                                categories.map(c => `<option value="${c}">${c}</option>`).join('');
+                        }
+                    } else {
+                        renderItemGrid(data.items);
+                    }
+                } catch(e) {
+                    console.log('Using fallback items');
+                    renderItemGrid(data.items);
+                }
 
                 filterAllByCompany();
                 renderCart();
                 attachGlobalScannerListener();
             } catch (err) { console.error("Init Error:", err); }
+        }
+
+        // Render items as clickable POS-style cards
+        function renderItemGrid(items) {
+            const grid = document.getElementById('item-grid');
+            if (!grid) return;
+            
+            grid.innerHTML = items.map(item => {
+                const price = item.selling_price || item.valuation_rate || 0;
+                const itemName = item.item_name || item.name;
+                const itemCode = item.name;
+                const itemGroup = item.item_group || '';
+                const stock = item.stock || 0;
+                const imageUrl = item.image || '';
+                
+                // Always show emoji - images from ERPNext are blocked by browser security
+                const imageHtml = `<span class="text-5xl">📦</span>`;
+                
+                return `
+                    <div 
+                        onclick="quickAddItem('${itemCode}')"
+                        class="item-card cursor-pointer bg-white border-2 border-slate-100 rounded-xl p-2 hover:border-amber-400 hover:shadow-md transition-all group"
+                        data-item-code="${itemCode}"
+                        data-item-name="${itemName.toLowerCase()}"
+                        data-item-category="${itemGroup}"
+                    >
+                        <div class="aspect-square bg-slate-100 rounded-lg mb-2 overflow-hidden flex items-center justify-center relative">
+                            ${imageHtml}
+                            <span class="stock-badge absolute top-1 right-1 ${stock > 0 ? 'bg-emerald-600' : 'bg-red-600'} text-white text-[9px] font-bold px-1.5 py-0.5 rounded">${stock > 0 ? stock + ' pcs' : 'Out of stock'}</span>
+                        </div>
+                        <p class="text-[10px] font-bold text-slate-600 truncate uppercase">${itemName}</p>
+                        <p class="text-sm font-black text-amber-600">₱${Number(price).toFixed(2)}</p>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Quick add item from grid click
+        async function quickAddItem(itemCode) {
+            document.getElementById('item_input').value = itemCode;
+            document.getElementById('qty').value = 1;
+            await fetchPriceAndStock();
+            addToCart();
+        }
+
+        // Filter item grid by search
+        function filterItemGrid() {
+            const search = document.getElementById('item-search').value.toLowerCase();
+            const cards = document.querySelectorAll('.item-card');
+            cards.forEach(card => {
+                const name = card.dataset.itemName;
+                const code = card.dataset.itemCode.toLowerCase();
+                if (name.includes(search) || code.includes(search)) {
+                    card.style.display = '';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+
+        // Filter by category (from dropdown)
+        function filterByCategory(category) {
+            console.log('Filtering by category:', category);
+            const cards = document.querySelectorAll('.item-card');
+            cards.forEach(card => {
+                const cat = (card.dataset.itemCategory || '').trim();
+                const selectedCat = category.trim();
+                console.log('Card category:', cat, 'Selected:', selectedCat);
+                if (selectedCat === 'all' || cat === selectedCat) {
+                    card.style.display = '';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+
+        function showAllItems() {
+            filterByCategory('all');
+        }
+
+        // Refresh stock levels in item grid when warehouse changes
+        async function refreshItemGridStock() {
+            const warehouse = document.getElementById('warehouse').value;
+            if (!warehouse) return;
+            
+            const cards = document.querySelectorAll('.item-card');
+            console.log('Refreshing stock for', cards.length, 'items in warehouse:', warehouse);
+            for (const card of cards) {
+                const itemCode = card.dataset.itemCode;
+                try {
+                    const res = await fetch(`/sales/api/get_stock?item_code=${encodeURIComponent(itemCode)}&warehouse=${encodeURIComponent(warehouse)}`);
+                    const data = await res.json();
+                    const stock = data.qty || 0;
+                    const stockBadge = card.querySelector('.stock-badge');
+                    if (stockBadge) {
+                        stockBadge.textContent = stock > 0 ? stock + ' pcs' : 'Out of stock';
+                        stockBadge.className = stock > 0 ? 'stock-badge absolute top-1 right-1 bg-emerald-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded' : 'stock-badge absolute top-1 right-1 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded';
+                    }
+                } catch(e) {
+                    console.error('Error fetching stock for', itemCode, ':', e);
+                }
+            }
         }
 
         function updateClock() { document.getElementById('clock').innerText = new Date().toLocaleTimeString(); }
@@ -422,8 +543,7 @@
         }
 
         async function scanBarcode(barcodeValue = null) {
-            const barcodeInput = document.getElementById('barcode_input');
-            const raw = (barcodeValue || barcodeInput.value || '').trim();
+            const raw = (barcodeValue || '').trim();
             if (!raw) return;
 
             try {
@@ -440,16 +560,8 @@
                     itemCodeToName[itemCode] = result.item_name;
                 }
 
-                const itemSelect = document.getElementById('item_input');
-                const hasOption = Array.from(itemSelect.options).some(opt => opt.value === itemCode);
-                if (!hasOption) {
-                    const label = `${itemCode} - ${result.item_name || itemCode}`;
-                    itemSelect.insertAdjacentHTML('beforeend', `<option value="${itemCode}">${label}</option>`);
-                }
-
-                itemSelect.value = itemCode;
+                // Add directly to cart using grid picker
                 await addScannedItem(itemCode);
-                barcodeInput.value = '';
             } catch (err) {
                 alert(`Barcode scan failed: ${err.message}`);
             }
@@ -492,10 +604,8 @@
             allItems.push({ name: code, item_name: name });
             itemCodeToName[code] = name;
 
-            const itemSelect = document.getElementById('item_input');
-            itemSelect.innerHTML = '<option value="">Choose an item...</option>' +
-                allItems.map(item => `<option value="${item.name}">${item.name} - ${item.item_name || item.name}</option>`).join('');
-            itemSelect.value = code;
+            // Set the new item as current selection
+            document.getElementById('item_input').value = code;
             document.getElementById('rate').value = Number(payload.sales_price || 0);
             if (result.queued) {
                 alert(result.message || 'Item queued offline. It will sync when connection returns.');
