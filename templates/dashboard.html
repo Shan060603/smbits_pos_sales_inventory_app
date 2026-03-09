@@ -157,7 +157,6 @@
                     </button>
                     <div id="dashboard-account-menu" class="hidden absolute right-0 mt-2 w-56 bg-slate-800 border border-slate-600 rounded-xl p-2 shadow-xl z-50 space-y-1">
                         <div class="px-3 py-2 text-[10px] uppercase tracking-widest text-slate-400 font-black truncate">{{ session.get('erp_user', 'ERP User') }}</div>
-                        <button type="button" onclick="warmupOfflineData()" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Prepare Offline Data</button>
                         <button type="button" onclick="handleInstallClick()" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Add To Home Screen</button>
                         <form method="POST" action="/logout">
                             <button type="submit" class="w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide hover:bg-slate-900/50">Logout</button>
@@ -386,6 +385,22 @@
 
         updateOfflineQueueBadge();
         setInterval(updateOfflineQueueBadge, 15000);
+
+        // Auto-warmup offline data on load (silently)
+        async function autoWarmupOfflineData() {
+            try {
+                const res = await fetch('/api/offline_queue/warmup', { method: 'POST' });
+                if (res.ok) {
+                    updateOfflineQueueBadge();
+                }
+            } catch (e) {
+                // Silently ignore — may already be offline or ERP unreachable
+            }
+        }
+
+        // Run once on load, then every 10 minutes
+        autoWarmupOfflineData();
+        setInterval(autoWarmupOfflineData, 10 * 60 * 1000);
     </script>
     <script src="/static/idle-timeout.js"></script>
     <script>
