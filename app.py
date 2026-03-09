@@ -2,6 +2,8 @@ import os
 import socket
 import time
 import requests
+from collections import defaultdict
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from flask import Flask, render_template, Response, request, redirect, url_for, session, flash, send_from_directory
 from dotenv import load_dotenv
@@ -14,6 +16,7 @@ from my_inventory_app.bridge import inventory_bp
 from my_sales_app.main import sales_bp
 from my_purchases_app.bridge import purchase_bp
 from offline_outbox import init_outbox, start_outbox_worker, outbox_status, process_pending_jobs, save_snapshot
+from cash_drawer import trigger_cash_drawer, is_drawer_available
 
 app = Flask(__name__)
 # Use a stable key across debug reload processes so first-login session is not lost.
@@ -44,7 +47,8 @@ def _is_public_path(path):
         "/favicon.ico",
         "/manifest.webmanifest",
         "/sw.js",
-        "/static/"
+        "/static/",
+        "/api/cash_drawer/"
     )
     if any(path.startswith(prefix) for prefix in public_prefixes):
         return True
@@ -423,6 +427,144 @@ def offline_queue_warmup():
     stats["inventory"]["filter_item_groups"] = len(inv_filters["item_groups"])
 
     return {"status": "success", "message": "Offline snapshots warmed.", "stats": stats}
+
+
+@app.route("/api/dashboard/charts")
+def dashboard_charts():
+    """Return aggregated chart data from offline snapshots for the dashboard."""
+    from offline_outbox import load_snapshot
+    erp_url = session.get("erp_url", "")
+
+    # ── Sales invoices ──────────────────────────────────────────────
+    sales_key = f"sales:invoice_report:{erp_url}:::::submitted:0:200"
+    sales_data = load_snapshot(sales_key) or {}
+    sales_rows = sales_data.get("rows", [])
+
+    # ── Purchase invoices ────────────────────────────────────────────
+    purchase_key = f"purchase:report:{erp_url}:purchase_invoice:::::all:0:300"
+    purchase_data = load_snapshot(purchase_key) or {}
+    purchase_rows = purchase_data.get("rows", [])
+
+    # ── Inventory stock ──────────────────────────────────────────────
+    inv_key = f"inventory:stock_report:{erp_url}:::0:0:20"
+    inv_rows = load_snapshot(inv_key) or []
+
+    today = datetime.today()
+
+    # Helper: generate last N months as "YYYY-MM" labels
+    def last_n_months(n=6):
+        months = []
+        for i in range(n - 1, -1, -1):
+            d = today.replace(day=1) - timedelta(days=1) * (i * 30)
+            months.append(d.strftime("%Y-%m"))
+        # deduplicate while preserving order
+        seen = set()
+        result = []
+        for m in months:
+            if m not in seen:
+                seen.add(m)
+                result.append(m)
+        return result[-n:]
+
+    months = last_n_months(6)
+
+    # ── Chart 1: Sales vs Purchases by month ─────────────────────────
+    sales_by_month = defaultdict(float)
+    for r in sales_rows:
+        date_str = r.get("posting_date") or r.get("transaction_date") or ""
+        if len(date_str) >= 7:
+            ym = date_str[:7]
+            sales_by_month[ym] += float(r.get("rounded_total") or r.get("grand_total") or 0)
+
+    purchases_by_month = defaultdict(float)
+    for r in purchase_rows:
+        date_str = r.get("posting_date") or r.get("transaction_date") or ""
+        if len(date_str) >= 7:
+            ym = date_str[:7]
+            purchases_by_month[ym] += float(r.get("rounded_total") or r.get("grand_total") or 0)
+
+    sales_vs_purchases = {
+        "labels": months,
+        "sales": [round(sales_by_month.get(m, 0), 2) for m in months],
+        "purchases": [round(purchases_by_month.get(m, 0), 2) for m in months],
+    }
+
+    # ── Chart 2: Daily sales trend (last 14 days) ────────────────────
+    days_14 = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(13, -1, -1)]
+    sales_by_day = defaultdict(float)
+    for r in sales_rows:
+        date_str = r.get("posting_date") or r.get("transaction_date") or ""
+        if len(date_str) >= 10:
+            sales_by_day[date_str[:10]] += float(r.get("rounded_total") or r.get("grand_total") or 0)
+
+    daily_sales = {
+        "labels": [d[5:] for d in days_14],  # "MM-DD" for brevity
+        "values": [round(sales_by_day.get(d, 0), 2) for d in days_14],
+    }
+
+    # ── Chart 3: Top 5 customers by sales ───────────────────────────
+    customer_totals = defaultdict(float)
+    for r in sales_rows:
+        c = r.get("customer_name") or r.get("customer") or "Unknown"
+        customer_totals[c] += float(r.get("rounded_total") or r.get("grand_total") or 0)
+    top_customers = sorted(customer_totals.items(), key=lambda x: x[1], reverse=True)[:5]
+    top_customers_chart = {
+        "labels": [x[0] for x in top_customers],
+        "values": [round(x[1], 2) for x in top_customers],
+    }
+
+    # ── Chart 4: Low stock items (bottom 10 by qty) ──────────────────
+    stock_items = []
+    for r in (inv_rows if isinstance(inv_rows, list) else []):
+        item = r.get("item_code") or r.get("item_name") or ""
+        qty = float(r.get("actual_qty") or 0)
+        if item:
+            stock_items.append((item, qty))
+    stock_items.sort(key=lambda x: x[1])
+    low_stock = stock_items[:10]
+    low_stock_chart = {
+        "labels": [x[0] for x in low_stock],
+        "values": [x[1] for x in low_stock],
+    }
+
+    # ── Chart 5: Gross profit by month ───────────────────────────────
+    gross_profit = {
+        "labels": months,
+        "values": [
+            round(sales_by_month.get(m, 0) - purchases_by_month.get(m, 0), 2)
+            for m in months
+        ],
+    }
+
+    return {
+        "sales_vs_purchases": sales_vs_purchases,
+        "daily_sales": daily_sales,
+        "top_customers": top_customers_chart,
+        "low_stock": low_stock_chart,
+        "gross_profit": gross_profit,
+    }
+
+
+@app.route("/api/cash_drawer/trigger", methods=["POST"])
+def cash_drawer_trigger():
+    """Trigger the cash drawer to open."""
+    device = None
+    if request.is_json and request.json:
+        device = request.json.get("device")
+    try:
+        trigger_cash_drawer(device)  # None uses DEFAULT_DEVICE in function
+        return {"status": "success", "message": "Cash drawer triggered."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.route("/api/cash_drawer/status")
+def cash_drawer_status():
+    """Check if cash drawer is connected."""
+    return {
+        "available": is_drawer_available(),
+        "device": os.getenv("CASH_DRAWER_DEVICE", "/dev/ttyUSB0")
+    }
 
 
 @app.route("/favicon.ico")

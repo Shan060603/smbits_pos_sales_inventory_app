@@ -191,6 +191,9 @@
                         <div class="text-right space-y-2">
                             <p class="text-xs text-slate-400 font-bold uppercase">Grand Total</p>
                             <p id="grand-total" class="text-4xl font-black text-slate-800">₱0.00</p>
+                            <button onclick="openCashDrawer()" class="w-full bg-slate-200 text-slate-600 font-bold py-2 rounded-lg hover:bg-slate-300 transition-all uppercase text-xs tracking-wider flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-cash-register"></i> Open Cash Drawer
+                            </button>
                             <button onclick="submitOrder()" id="submit-btn" class="w-full bg-amber-500 text-slate-900 font-black py-4 rounded-xl hover:bg-amber-600 shadow-lg disabled:opacity-50 transition-all uppercase tracking-tighter">
                                 CHECK OUT
                             </button>
@@ -674,6 +677,14 @@
             updateCheckoutFields();
         }
 
+        async function openCashDrawer() {
+            try {
+                await fetch('/api/cash_drawer/trigger', { method: 'POST' });
+            } catch (e) {
+                console.log('Cash drawer not available:', e);
+            }
+        }
+
         async function submitOrder() {
             if (cart.length === 0) return alert("Cart is empty!");
             if (!document.getElementById('cust').value) return alert("Select a customer.");
@@ -710,11 +721,13 @@
                 if (response.ok) {
                     status.innerText = "✅ SUCCESS: " + result.message;
                     status.className = "mt-4 p-3 rounded-lg text-center text-xs font-bold bg-emerald-100 text-emerald-700 block";
-                    cart = []; 
+                    cart = [];
                     document.getElementById('amount-paid').value = '';
                     document.getElementById('mode-of-payment').value = '';
                     resetLineInputs(true);
                     renderCart();
+                    // Auto-trigger cash drawer on successful checkout
+                    openCashDrawer();
                 } else {
                     status.innerText = "❌ FAILED: " + result.message;
                     status.className = "mt-4 p-3 rounded-lg text-center text-xs font-bold bg-red-100 text-red-700 block";

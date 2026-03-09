@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+from datetime import date, timedelta
 from urllib.parse import quote
 from flask import Blueprint, render_template, request, jsonify, session
 from dotenv import load_dotenv
@@ -154,7 +155,7 @@ class SMBITSInventoryBridge:
         return formatted
 
     def _apply_item_prices(self, rows):
-        """Override UI rates using Item Price lists when available."""
+        """Override UI rates using the most recently modified Item Price entry."""
         item_codes = sorted({r.get("item_code") for r in rows if r.get("item_code")})
         if not item_codes:
             return rows
@@ -162,19 +163,33 @@ class SMBITSInventoryBridge:
         buying_rows = self.get_resource_list(
             "Item Price",
             filters=[["item_code", "in", item_codes], ["price_list", "=", "Standard Buying"]],
-            fields=["item_code", "price_list_rate"],
+            fields=["item_code", "price_list_rate", "modified"],
             start=0,
             page_length=2000
         )
         selling_rows = self.get_resource_list(
             "Item Price",
             filters=[["item_code", "in", item_codes], ["price_list", "=", "Standard Selling"]],
-            fields=["item_code", "price_list_rate"],
+            fields=["item_code", "price_list_rate", "modified"],
             start=0,
             page_length=2000
         )
-        buying_map = {r.get("item_code"): float(r.get("price_list_rate") or 0) for r in buying_rows}
-        selling_map = {r.get("item_code"): float(r.get("price_list_rate") or 0) for r in selling_rows}
+
+        def _build_latest_map(price_rows):
+            """Build item_code → rate map, keeping the most recently modified entry."""
+            m = {}
+            for r in price_rows:
+                code = r.get("item_code")
+                if not code:
+                    continue
+                rate = float(r.get("price_list_rate") or 0)
+                mod = r.get("modified") or ""
+                if code not in m or mod > m[code][1]:
+                    m[code] = (rate, mod)
+            return {code: v[0] for code, v in m.items()}
+
+        buying_map = _build_latest_map(buying_rows)
+        selling_map = _build_latest_map(selling_rows)
 
         for row in rows:
             code = row.get("item_code")
@@ -338,9 +353,12 @@ class SMBITSInventoryBridge:
 
     def add_item_price_history(self, item_code, price_list, rate):
         """
-        Append a new Item Price row for historical tracking (no overwrite).
+        Append a new Item Price row for historical tracking.
+        Tries to create without valid_from first. If duplicate, tries with
+        incremental dates (today, tomorrow, etc.) until it succeeds.
         """
         try:
+            # First try without valid_from
             create_payload = {
                 "item_code": item_code,
                 "price_list": price_list,
@@ -352,17 +370,18 @@ class SMBITSInventoryBridge:
             if res.ok and isinstance(body.get("data"), dict):
                 return {"ok": True, "data": body.get("data"), "mode": "appended"}
 
-            # Fallback: if server blocks duplicate combinations, update current instead of failing.
-            fallback = self.upsert_item_price(item_code, price_list, rate)
-            if fallback.get("ok"):
-                fallback["mode"] = "updated_existing"
-            return fallback
+            # If failed (likely duplicate), try with incremental dates
+            for days_offset in range(10):  # Try up to 10 days forward
+                test_date = (date.today() + timedelta(days=days_offset)).isoformat()
+                create_payload["valid_from"] = test_date
+                res = self.session.post(endpoint, json=create_payload, timeout=25)
+                body = res.json() if res.text else {}
+                if res.ok and isinstance(body.get("data"), dict):
+                    return {"ok": True, "data": body.get("data"), "mode": f"appended_with_valid_from_{test_date}"}
+
+            # All attempts failed - return the last error
+            return {"ok": False, "error": self._extract_error(body) or "Failed to create Item Price entry after multiple attempts."}
         except Exception as e:
-            # Fallback to upsert on transport/validation edge cases.
-            fallback = self.upsert_item_price(item_code, price_list, rate)
-            if fallback.get("ok"):
-                fallback["mode"] = "updated_existing"
-                return fallback
             return {"ok": False, "error": str(e)}
 
     def create_item(self, item_code, item_name, stock_uom, item_group=None, is_stock_item=True, sales_price=0, purchase_price=0, barcodes=None):
@@ -942,10 +961,5 @@ def update_item_rate():
     price_list = "Standard Buying" if price_type == "buying" else "Standard Selling"
     result = inventory_engine.add_item_price_history(item_code, price_list, rate)
     if result.get("ok"):
-        mode = result.get("mode") or "appended"
-        if mode == "appended":
-            msg = f"{price_list} added as new history entry."
-        else:
-            msg = f"{price_list} updated on existing entry (ERP duplicate rule)."
-        return jsonify({"status": "success", "message": msg, "rate": rate, "mode": mode})
+        return jsonify({"status": "success", "message": f"{price_list} saved. Old price kept in ERPNext history.", "rate": rate})
     return jsonify({"status": "error", "message": result.get("error") or "Failed to save rate."}), 400

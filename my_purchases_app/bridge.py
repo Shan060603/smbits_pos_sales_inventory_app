@@ -56,7 +56,7 @@ class SMBITSPurchaseBridge:
         }
         
         fields = field_map.get(doctype, ["name"])
-        params = {"fields": json.dumps(fields), "limit_page_length": 2000}
+        params = {"fields": json.dumps(fields), "limit_page_length": 2000, "limit_start": 0}
         
         try:
             response = requests.get(endpoint, headers=self.headers, params=params)
@@ -104,44 +104,119 @@ class SMBITSPurchaseBridge:
             endpoint = f"{self.url}/api/method/frappe.client.get_list"
             params = {
                 "doctype": "Item Barcode",
-                "fields": json.dumps(["parent", "barcode"]),
+                "fields": json.dumps(["parent", "barcode", "parenttype"]),
                 "filters": json.dumps([
-                    ["barcode", "in", candidates],
-                    ["parenttype", "=", "Item"]
+                    ["barcode", "in", candidates]
                 ]),
-                "limit_page_length": 1
+                "limit_page_length": 100
             }
-            response = requests.get(endpoint, headers=self.headers, params=params)
-            if response.status_code == 200:
-                rows = response.json().get("message", [])
-                if rows:
-                    item_code = rows[0].get("parent")
-                    if item_code:
-                        return {"ok": True, "item_code": item_code}
-        except Exception:
-            pass
+            response = requests.get(endpoint, headers=self.headers, params=params, timeout=15)
+            if response.ok:
+                rows = response.json().get("message", []) or []
+                for row in rows:
+                    item_code = (row.get("parent") or "").strip()
+                    parenttype = (row.get("parenttype") or "Item").strip()
+                    if item_code and (not parenttype or parenttype == "Item"):
+                        item_res = requests.get(
+                            f"{self.url}/api/resource/Item/{item_code}",
+                            headers=self.headers,
+                            timeout=10
+                        )
+                        item_name = None
+                        if item_res.ok:
+                            item_data = item_res.json().get("data", {})
+                            item_name = item_data.get("item_name") or item_data.get("name")
+                        return {"ok": True, "item_code": item_code, "item_name": item_name}
+        except Exception as e:
+            print(f"Barcode lookup error (Item Barcode): {e}")
+
+        try:
+            endpoint = f"{self.url}/api/resource/Item Barcode"
+            params = {
+                "fields": json.dumps(["parent", "barcode", "parenttype"]),
+                "filters": json.dumps([
+                    ["barcode", "in", candidates]
+                ]),
+                "limit_page_length": 100
+            }
+            response = requests.get(endpoint, headers=self.headers, params=params, timeout=15)
+            if response.ok:
+                rows = response.json().get("data", []) or []
+                for row in rows:
+                    item_code = (row.get("parent") or "").strip()
+                    parenttype = (row.get("parenttype") or "Item").strip()
+                    if item_code and (not parenttype or parenttype == "Item"):
+                        item_res = requests.get(
+                            f"{self.url}/api/resource/Item/{item_code}",
+                            headers=self.headers,
+                            timeout=10
+                        )
+                        item_name = None
+                        if item_res.ok:
+                            item_data = item_res.json().get("data", {})
+                            item_name = item_data.get("item_name") or item_data.get("name")
+                        return {"ok": True, "item_code": item_code, "item_name": item_name}
+        except Exception as e:
+            print(f"Barcode lookup error (Item Barcode resource): {e}")
+
+        try:
+            endpoint = f"{self.url}/api/method/frappe.client.get"
+            params = {
+                "doctype": "Item",
+                "name": code
+            }
+            response = requests.get(endpoint, headers=self.headers, params=params, timeout=15)
+            if response.ok:
+                doc = response.json().get("message", {}) or {}
+                if doc:
+                    return {
+                        "ok": True,
+                        "item_code": doc.get("name"),
+                        "item_name": doc.get("item_name") or doc.get("name")
+                    }
+        except Exception as e:
+            print(f"Barcode lookup error (direct item code fallback): {e}")
 
         try:
             endpoint = f"{self.url}/api/resource/Item"
             params = {
                 "fields": json.dumps(["name", "item_name"]),
-                "filters": json.dumps([["barcode", "in", candidates]]),
-                "limit_page_length": 1
+                "limit_page_length": 500
             }
-            response = requests.get(endpoint, headers=self.headers, params=params)
-            if response.status_code == 200:
-                rows = response.json().get("data", [])
-                if rows:
-                    row = rows[0]
-                    return {
-                        "ok": True,
-                        "item_code": row.get("name"),
-                        "item_name": row.get("item_name") or row.get("name")
-                    }
-        except Exception:
-            pass
+            response = requests.get(endpoint, headers=self.headers, params=params, timeout=20)
+            if response.ok:
+                rows = response.json().get("data", []) or []
+                for row in rows:
+                    item_code = (row.get("name") or "").strip()
+                    if not item_code:
+                        continue
+                    item_res = requests.get(
+                        f"{self.url}/api/resource/Item/{item_code}",
+                        headers=self.headers,
+                        timeout=10
+                    )
+                    if not item_res.ok:
+                        continue
+                    item_doc = item_res.json().get("data", {}) or {}
+                    direct_barcode = (item_doc.get("barcode") or "").strip()
+                    if direct_barcode in candidates:
+                        return {
+                            "ok": True,
+                            "item_code": item_doc.get("name"),
+                            "item_name": item_doc.get("item_name") or item_doc.get("name")
+                        }
+                    for child in (item_doc.get("barcodes") or []):
+                        child_barcode = (child.get("barcode") or "").strip() if isinstance(child, dict) else ""
+                        if child_barcode in candidates:
+                            return {
+                                "ok": True,
+                                "item_code": item_doc.get("name"),
+                                "item_name": item_doc.get("item_name") or item_doc.get("name")
+                            }
+        except Exception as e:
+            print(f"Barcode lookup error (Item scan fallback): {e}")
 
-        return {"ok": False, "error": "Barcode not found."}
+        return {"ok": False, "error": f"Barcode not found: {code}"}
 
     def send_purchase_order(self, supplier, company, items, transaction_date=None, schedule_date=None, submit=True):
         """Creates a Purchase Order and optionally submits it."""

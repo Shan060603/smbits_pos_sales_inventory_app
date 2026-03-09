@@ -50,7 +50,8 @@ class SMBITSBridge:
         
         params = {
             "fields": json.dumps(fields),
-            "limit_page_length": 2000 # Higher limit for large item lists
+            "limit_page_length": 2000,  # Higher limit for large lists
+            "limit_start": 0
         }
         
         try:
